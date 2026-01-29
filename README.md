@@ -49,7 +49,7 @@ npm install @letsping/sdk
 from letsping import LetsPing
 
 # 1. Initialize the client
-lp = LetsPing(api_key="lp_sk_...")
+lp = LetsPing(api_key=os.getenv("LETSPING_API_KEY"))
 
 # 2. Define the sensitive payload
 transfer_data = {

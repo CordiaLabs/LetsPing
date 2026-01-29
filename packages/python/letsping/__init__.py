@@ -23,7 +23,7 @@ class LetsPing:
         result = lp.ask(channel="finance", payload={...})
     """
     
-    def __init__(self, api_key: Optional[str] = None, base_url: str = "https://api.letsping.co/v1"):
+    def __init__(self, api_key: Optional[str] = None, base_url: str = "https://letsping.co/api"):
         self.api_key = api_key or os.getenv("LETSPING_API_KEY")
         if not self.api_key:
             raise ValueError("LetsPing API Key is required. Set LETSPING_API_KEY env var or pass in constructor.")
