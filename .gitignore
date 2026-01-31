@@ -1,11 +1,9 @@
-# --- Node.js ---
 node_modules/
 dist/
 lib-browser/
 .npm/
 package-lock.json
 
-# --- Python ---
 __pycache__/
 *.py[cod]
 *$py.class
@@ -30,7 +28,6 @@ pip-wheel-metadata/
 *.egg
 MANIFEST
 
-# --- Environment/Secrets ---
 .env
 .env.local
 .env.development.local
@@ -38,7 +35,6 @@ MANIFEST
 .env.production.local
 .ds_store
 
-# --- IDEs ---
 .vscode/
 .idea/
 *.swp

@@ -1,0 +1,36 @@
+{
+    "name": "letsping",
+    "version": "0.1.1",
+    "description": "CLI for LetsPing.co - The Human-in-the-Loop Control Plane",
+    "bin": {
+        "letsping": "./dist/index.js"
+    },
+    "files": [
+        "dist"
+    ],
+    "scripts": {
+        "build": "tsup",
+        "dev": "tsup --watch",
+        "start": "node dist/index.js",
+        "typecheck": "tsc --noEmit"
+    },
+    "keywords": [
+        "letsping",
+        "cli",
+        "agent",
+        "hitl"
+    ],
+    "author": "Cordia Labs",
+    "license": "MIT",
+    "dependencies": {
+        "@supabase/supabase-js": "^2.39.0",
+        "chalk": "^4.1.2",
+        "commander": "^11.1.0",
+        "dotenv": "^16.3.1"
+    },
+    "devDependencies": {
+        "@types/node": "^20.10.0",
+        "tsup": "^8.0.1",
+        "typescript": "^5.3.3"
+    }
+}

@@ -5,11 +5,10 @@
 [![PyPI version](https://badge.fury.io/py/letsping.svg)](https://badge.fury.io/py/letsping)
 [![npm version](https://badge.fury.io/js/@letsping%2Fsdk.svg)](https://badge.fury.io/js/@letsping%2Fsdk)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Twitter](https://img.shields.io/twitter/follow/letspingai?style=social)](https://twitter.com/letspingai)
 
-**The Human-in-the-Loop Protocol for AI Agents.**
+**Human-in-the-loop infrastructure for autonomous agents.**
 
-[Website](https://letsping.co) • [Documentation](https://letsping.co/docs)
+[Website](https://letsping.co) • [Documentation](https://docs.letsping.co)
 
 </div>
 
@@ -17,72 +16,98 @@
 
 ## What is LetsPing?
 
-LetsPing is a state management infrastructure designed to solve the **"Durable Wait"** problem for autonomous agents. It allows developers to pause agent execution, request human approval (or data modification), and resume execution only after the human interaction is resolved.
+LetsPing provides durable state management for agent workflows that require human oversight. It lets you pause execution, send a request to a human approver (with optional payload editing), and resume only after a decision is made.
 
-It is designed to be **framework agnostic**, working seamlessly with LangChain, AutoGPT, CrewAI, or raw Python/Node scripts.
+It is framework-agnostic and works with LangChain, CrewAI, AutoGen, Vercel AI SDK, LangGraph.js, or plain scripts.
 
 ## Features
 
-- **⏸️ Durable Pauses:** Agents sleep while waiting. No polling, no burning compute.
-- **🛡️ Secure Gateway:** Human approvers access a secure dashboard, never the raw terminal.
-- **📝 Payload Hot-Patching:** Humans can fix hallucinations in JSON payloads before they execute.
-- **🔍 Audit Trails:** Immutable logs of who approved what and when.
+- Durable waits: Execution pauses without polling or idle compute.
+- Secure approval dashboard: Approvers see only the request payload.
+- Payload editing: Humans can modify JSON before approval.
+- Immutable audit logs.
+
+## Ecosystem
+
+| Package          | Description                          | Source                                      |
+|------------------|--------------------------------------|---------------------------------------------|
+| Python SDK       | LangChain, CrewAI, AutoGen           | [`packages/python`](packages/python)        |
+| Node.js SDK      | Vercel AI SDK, LangGraph.js          | [`packages/sdk`](packages/sdk)              |
+| CLI              | Local debugging and tunnels          | [`packages/cli`](packages/cli)              |
+| OpenClaw Skill   | Prompt-based HITL for OpenClaw agents | [CordiaLabs/openclaw-skill](https://github.com/CordiaLabs/openclaw-skill) |
 
 ## Installation
 
 ### Python
 ```bash
 pip install letsping
-
 ```
 
 ### Node.js
-
 ```bash
 npm install @letsping/sdk
-
 ```
 
-## Quick Start (Python)
+## Quick Start
 
+### Python
 ```python
+import os
 from letsping import LetsPing
 
-# 1. Initialize the client
 lp = LetsPing(api_key=os.getenv("LETSPING_API_KEY"))
 
-# 2. Define the sensitive payload
-transfer_data = {
+payload = {
     "amount": 5000,
     "currency": "USD",
-    "recipient": "unknown_wallet_0x123"
+    "recipient": "0x123..."
 }
 
-# 3. Request Approval (This blocks until the human clicks "Approve")
-print("Requesting human review...")
+print("Requesting approval...")
 result = lp.ask(
-    channel="finance-approvals",
-    payload=transfer_data,
-    description="High value transaction detected."
+    channel="finance",
+    payload=payload,
+    description="High-value transfer"
 )
 
 if result.status == "APPROVED":
-    # 4. Use the (potentially modified) payload
-    final_data = result.payload
-    execute_transfer(final_data)
+    execute_transfer(result.payload)  # May have been edited
 else:
-    print("Transfer rejected by operator.")
+    print("Rejected")
+```
 
+### Node.js
+```ts
+import { LetsPing } from "@letsping/sdk";
+
+const lp = new LetsPing({ apiKey: process.env.LETSPING_API_KEY });
+
+const payload = {
+  amount: 5000,
+  currency: "USD",
+  recipient: "0x123..."
+};
+
+console.log("Requesting approval...");
+const result = await lp.ask({
+  channel: "finance",
+  payload,
+  description: "High-value transfer"
+});
+
+if (result.status === "APPROVED") {
+  executeTransfer(result.payload);  // May have been edited
+} else {
+  console.log("Rejected");
+}
 ```
 
 ## Feedback & Issues
 
-LetsPing is currently in **Public Beta**.
+LetsPing is in public beta. The core platform is closed-source; the SDKs are open.
 
-While the core platform is closed-source, these SDKs are open. We are not currently accepting Pull Requests for new features as we stabilize the API, but we strictly value your feedback on the Developer Experience (DX).
-
-If you encounter a bug or have a feature request, please [Open an Issue](https://github.com/cordialabs/letsping/issues).
+File bugs, request features, or discuss usage in Issues.
 
 ## Security
 
-For security concerns, please email security@letsping.co. Do not open public issues for vulnerabilities.
+For vulnerabilities, email security@letsping.co (do not open public issues).

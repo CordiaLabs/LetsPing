@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "letsping"
+version = "0.1.0"
+description = "The Control Plane for Autonomous Agents. Add Human-in-the-Loop approval with one line of code."
+readme = "README.md"
+authors = [{ name = "Cordia Labs", email = "admin@cordialabs.io" }]
+license = { text = "MIT" }
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+requires-python = ">=3.8"
+dependencies = [
+    "httpx>=0.23.0"
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.21.0",
+    "respx>=0.20.0",
+    "pytest-cov>=4.0",
+    "mypy>=1.0",
+    "ruff>=0.1.0"
+]
+
+[project.urls]
+"Homepage" = "https://letsping.co"
+"Documentation" = "https://letsping.co/docs"
+
+[tool.setuptools]
+py-modules = ["letsping"]
+
+[tool.setuptools.package-data]
+"*" = ["py.typed"]
