@@ -1,0 +1,32 @@
+{
+    "name": "@letsping/mcp",
+    "version": "0.1.2",
+    "description": "LetsPing MCP Server for Human-in-the-Loop Agents",
+    "main": "dist/index.js",
+    "bin": {
+        "letsping-mcp": "dist/index.js"
+    },
+    "type": "module",
+    "scripts": {
+        "build": "tsc",
+        "start": "node dist/index.js",
+        "prepublishOnly": "npm run build"
+    },
+    "dependencies": {
+        "@modelcontextprotocol/sdk": "^1.0.1",
+        "@letsping/sdk": "file:../sdk",
+        "zod": "^3.22.4"
+    },
+    "devDependencies": {
+        "typescript": "^5.0.0",
+        "@types/node": "^20.0.0"
+    },
+    "keywords": [
+        "letsping",
+        "mcp",
+        "agents",
+        "human-in-the-loop"
+    ],
+    "author": "Cordia Labs",
+    "license": "MIT"
+}

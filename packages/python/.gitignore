@@ -1,0 +1,20 @@
+# Distribution / Build
+build/
+dist/
+*.egg-info/
+var/
+
+# Python Artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environments
+.env
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/

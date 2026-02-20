@@ -1,0 +1,28 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "letsping"
+version = "0.1.2"
+description = "The Human-in-the-Loop SDK for AI Agents"
+readme = "README.md"
+authors = [{ name = "LetsPing Team", email = "hello@letsping.co" }]
+license = { text = "MIT" }
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+requires-python = ">=3.8"
+dependencies = [
+    "httpx>=0.23.0"
+]
+
+[project.urls]
+Homepage = "https://letsping.co"
+Repository = "https://github.com/CordiaLabs/letsping"
+
+[tool.hatch.build.targets.wheel]
+packages = ["letsping.py"]

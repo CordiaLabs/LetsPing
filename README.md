@@ -1,88 +1,97 @@
-# LetsPing
+# LetsPing | The Human-in-the-Loop Protocol
 
-<div align="center">
-
-[![PyPI version](https://badge.fury.io/py/letsping.svg)](https://badge.fury.io/py/letsping)
-[![npm version](https://badge.fury.io/js/@letsping%2Fsdk.svg)](https://badge.fury.io/js/@letsping%2Fsdk)
+[![npm version](https://img.shields.io/npm/v/@letsping/sdk.svg)](https://www.npmjs.com/package/@letsping/sdk)
+[![PyPI version](https://img.shields.io/pypi/v/letsping.svg)](https://pypi.org/project/letsping/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Twitter](https://img.shields.io/twitter/follow/letspingai?style=social)](https://twitter.com/letspingai)
 
-**The Human-in-the-Loop Protocol for AI Agents.**
+> **The Governance Layer for Agentic AI.**
+> Add human approval, oversight, and cryptographically signed governance to any AI workflow with a single line of code.
 
-[Website](https://letsping.co) • [Documentation](https://letsping.co/docs)
-
-</div>
+LetsPing is a high-throughput infrastructure layer that allows AI agents to pause execution, persist state to a secure cloud control plane, and resume only after a human operator provides a decision. It bridges the gap between autonomous agentic capabilities and enterprise safety requirements.
 
 ---
 
-## What is LetsPing?
+## Key Features
 
-LetsPing is a state management infrastructure designed to solve the **"Durable Wait"** problem for autonomous agents. It allows developers to pause agent execution, request human approval (or data modification), and resume execution only after the human interaction is resolved.
-
-It is designed to be **framework agnostic**, working seamlessly with LangChain, AutoGPT, CrewAI, or raw Python/Node scripts.
-
-## Features
-
-- **⏸️ Durable Pauses:** Agents sleep while waiting. No polling, no burning compute.
-- **🛡️ Secure Gateway:** Human approvers access a secure dashboard, never the raw terminal.
-- **📝 Payload Hot-Patching:** Humans can fix hallucinations in JSON payloads before they execute.
-- **🔍 Audit Trails:** Immutable logs of who approved what and when.
-
-## Installation
-
-### Python
+### Universal MCP Server
+Connect any agentic environment (Claude Desktop, Cursor, LangChain) instantly via the Model Context Protocol.
 ```bash
-pip install letsping
-
+npx @letsping/mcp
 ```
 
-### Node.js
+### Rich Patching (Structured Editor)
+Agents make typos. Don't reject the whole run—**fix it in-flight.**
+- **Native UI Forms:** If your agent sends a JSON Schema, LetsPing renders an auto-generated form.
+- **Human Correction:** Edit the payload directly in the dashboard and approve the corrected state.
 
-```bash
-npm install @letsping/sdk
-
-```
-
-## Quick Start (Python)
-
+### Enterprise Role-Based Routing
+Ensure the right person makes the decision. Routing is handled natively at the protocol level.
 ```python
-from letsping import LetsPing
-
-# 1. Initialize the client
-lp = LetsPing(api_key=os.getenv("LETSPING_API_KEY"))
-
-# 2. Define the sensitive payload
-transfer_data = {
-    "amount": 5000,
-    "currency": "USD",
-    "recipient": "unknown_wallet_0x123"
-}
-
-# 3. Request Approval (This blocks until the human clicks "Approve")
-print("Requesting human review...")
-result = lp.ask(
-    channel="finance-approvals",
-    payload=transfer_data,
-    description="High value transaction detected."
-)
-
-if result.status == "APPROVED":
-    # 4. Use the (potentially modified) payload
-    final_data = result.payload
-    execute_transfer(final_data)
-else:
-    print("Transfer rejected by operator.")
-
+# Route to specific organizational units or roles
+letsping.ask(..., role="finance") # Pings the CFO/Treasury
+letsping.ask(..., role="devops")  # Pings the On-Call Engineer
 ```
 
-## Feedback & Issues
+---
 
-LetsPing is currently in **Public Beta**.
+## Monorepo Structure
 
-While the core platform is closed-source, these SDKs are open. We are not currently accepting Pull Requests for new features as we stabilize the API, but we strictly value your feedback on the Developer Experience (DX).
+This repository is a monorepo containing the core components of the LetsPing control plane.
 
-If you encounter a bug or have a feature request, please [Open an Issue](https://github.com/cordialabs/letsping/issues).
+| Package | Status | Description |
+| :--- | :--- | :--- |
+| [`@letsping/sdk`](/packages/sdk) | `v0.1.2` | Core TypeScript/Node.js SDK with full type safety. |
+| [`letsping`](/packages/python) | `v0.1.2` | Native Python SDK for LangChain, Autogen, and CrewAI. |
+| [`@letsping/adapters`](/packages/adapters) | `v0.1.2` | Drop-in tools for Vercel AI SDK and LangGraph. |
+| [`@letsping/mcp`](/packages/mcp) | `v0.1.2` | Standardized Model Context Protocol server. |
+| [`@letsping/cli`](/packages/cli) | `v0.1.2` | Local development and administrative CLI. |
+| `apps/web` | Internal | Next.js 15 Control Plane Dashboard and Ingestion API. |
 
-## Security
+---
 
-For security concerns, please email security@letsping.co. Do not open public issues for vulnerabilities.
+## Architecture & Infrastructure
+
+LetsPing is built on an event-driven, serverless-first architecture designed for resilience and low latency.
+
+* **Next.js 15 App Router:** Unified API gateway and real-time dashboard.
+* **QStash & Upstash Redis:** High-throughput asynchronous ingestion and hot-state management.
+* **Supabase:** PostgreSQL persistence with Row-Level Security (RLS) for multi-tenant isolation.
+
+### Infrastructure Stack
+
+| Component | Service | Purpose |
+| :--- | :--- | :--- |
+| **Compute & Edge** | Vercel | API gateway and Dashboard hosting. |
+| **Database** | Supabase | Multi-tenant PostgreSQL and Auth. |
+| **Async Queuing** | QStash | Durable messaging for agentic state persistence. |
+| **State Cache** | Upstash Redis | Real-time signaling and dashboard updates. |
+| **Billing** | Stripe | Enterprise subscription and usage management. |
+
+---
+
+## Getting Started
+
+### Prerequisites
+* Node.js 20+
+* `npm`
+* A LetsPing API Key (obtainable from the [LetsPing Dashboard](https://letsping.co/settings))
+
+### Quick Start
+```bash
+# Set your API key
+export LETSPING_API_KEY="your_api_key_here"
+
+# Run the MCP server instantly
+npx @letsping/mcp
+```
+
+For SDK integration and advanced usage, see the [packages](/packages) directory.
+
+---
+
+## License
+
+LetsPing is [MIT Licensed](LICENSE).
+
+---
+Maintained by **Cordia Labs**.
