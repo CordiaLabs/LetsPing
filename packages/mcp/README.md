@@ -2,7 +2,7 @@
 
 The official **Model Context Protocol (MCP)** server for LetsPing.
 
-This package enables any MCP-compliant agent (Claude Desktop, Cursor, LangChain, etc.) to natively "Ask a Human" for approval or help.
+This package enables any MCP-compliant agent (Claude Desktop, Cursor, LangChain, etc.) to natively invoke the **Behavioral Shield**, parking the context and "Asking a Human" for approval or help before deploying destructive API changes on your machine.
 
 ## Usage
 

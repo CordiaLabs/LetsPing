@@ -2,7 +2,12 @@
 
 The official Node.js/TypeScript SDK for [LetsPing](https://letsping.co).
 
-LetsPing is the Human-in-the-Loop control plane for autonomous agents — the durable state layer that pauses execution before sensitive actions, persists encrypted agent state, and resumes only after explicit human approval (or rejection/correction).
+LetsPing is a behavioral firewall and Human-in-the-Loop (HITL) infrastructure layer for Agentic AI. It provides mathematically secure state-parking (Cryo-Sleep) and execution governance for autonomous agents built on frameworks like LangGraph, Vercel AI SDK, and custom architectures.
+
+### Features
+- **The Behavioral Shield:** Silently profiles your agent's execution paths via Markov Chains. Automatically intercepts 0-probability reasoning anomalies (hallucinations/prompt injections).
+- **Cryo-Sleep State Parking:** Pauses execution and securely uploads massive agent states directly to storage using Signed URLs, entirely bypassing serverless timeouts and webhook payload limits.
+- **Smart-Accept Drift Adaptation:** Approval decisions mathematically alter the baseline. Old unused reasoning paths decay automatically via Exponential Moving Average (EMA).
 
 ## Requirements
 
@@ -78,10 +83,28 @@ const { id } = await lp.defer({
     subject: "Your invoice is ready",
     amount: 249.99
   },
-  priority: "medium"
+  priority: "medium",
+  // Optional: Pass the full LangGraph/Vercel state dict.
+  // It will be encrypted client-side and uploaded directly to S3.
+  state_snapshot: agentState
 });
 
 console.log(`Approval request queued → ${id}`);
+```
+
+### Webhook Rehydration (Framework Agnostic)
+LetsPing does **not** magically inject state back into your framework natively. You must handle the webhook and rehydrate your specific framework manually.
+
+```typescript
+// Example Webhook Route Handler
+if (body.status === "APPROVED") {
+    let hydratedState = null;
+    if (body.state_download_url) {
+        const res = await fetch(body.state_download_url);
+        hydratedState = lp._decrypt(await res.json());
+    }
+    // Manually push `hydratedState` back into your LangGraph/Vercel thread
+}
 ```
 
 ## API Reference

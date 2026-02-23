@@ -81,5 +81,6 @@ Make sure the following compatible versions are installed in your project:
 - The `apiKey` is passed per-tool. For most applications you will use the same key across tools.
 - The `schema` (Zod) is used both for type safety and to generate an editable form in the LetsPing dashboard.
 - If the human modifies values in the form, the resolved payload will contain the updated values (`patched_payload` in the LetsPing SDK response).
+- **Important**: These adapters handle the *execution pause* natively within standard framework constructs, but they do *not* automatically rehydrate the framework once the process exits. You must handle webhook delivery and instantiate your framework resumption logic manually.
 
 For full LetsPing API documentation, see: https://letsping.co/docs

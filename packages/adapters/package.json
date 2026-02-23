@@ -1,7 +1,7 @@
 {
   "name": "@letsping/adapters",
-  "version": "0.1.3",
-  "description": "Drop-in Human-in-the-Loop adapters for Vercel AI SDK and LangChain",
+  "version": "0.1.5",
+  "description": "LetsPing Framework Adapters for Vercel AI SDK and LangChain",
   "files": [
     "dist"
   ],
@@ -28,7 +28,7 @@
     "zod": ">=3.0.0"
   },
   "dependencies": {
-    "@letsping/sdk": "0.1.3"
+    "@letsping/sdk": "0.1.5"
   },
   "devDependencies": {
     "tsup": "^8.0.0",

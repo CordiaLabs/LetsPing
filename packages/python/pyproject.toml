@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "letsping"
-version = "0.1.3"
-description = "The Human-in-the-Loop SDK for AI Agents"
+version = "0.1.5"
+description = "Behavioral Firewall and Cryo-Sleep State Parking for AI Agents"
 readme = "README.md"
 authors = [{ name = "LetsPing Team", email = "hello@letsping.co" }]
 license = { text = "MIT" }

@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import http, { IncomingMessage, ServerResponse } from 'http';
 import { createClient, SupabaseClient, RealtimeChannel } from '@supabase/supabase-js';
 import { Command } from 'commander';
@@ -10,8 +11,8 @@ const SUPABASE_URL = process.env.LETSPING_SUPABASE_URL || "https://tqphlqmmamdjo
 const SUPABASE_ANON_KEY = process.env.LETSPING_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRxcGhscW1tYW1kam91ZnFubmthIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjkxMjIzNjksImV4cCI6MjA4NDY5ODM2OX0.N3EU5ovNeeh6pkJsi_emHuMFm5vAguC3qR0S4Qq5K14";
 const WEB_APP_URL = process.env.LETSPING_DASHBOARD_URL || "https://letsping.co";
 
-let CLI_VERSION = "0.1.2";
-try { CLI_VERSION = require("../package.json").version; } catch {  }
+let CLI_VERSION = "0.1.5";
+try { CLI_VERSION = require("../package.json").version; } catch { }
 interface RequestPayload {
   id?: string;
   service?: string;

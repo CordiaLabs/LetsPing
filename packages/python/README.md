@@ -5,7 +5,13 @@
 [![Python Versions](https://img.shields.io/pypi/pyversions/letsping.svg)](https://pypi.org/project/letsping/)
 
 The official state management infrastructure for Human-in-the-Loop (HITL) AI agents.
-LetsPing provides a durable "pause button" for autonomous agents, decoupling the agent's execution logic from the human's response time. It handles state serialization, secure polling, and notification routing (Slack, Email) automatically.
+
+LetsPing is a behavioral firewall and governance layer. It provides mathematically secure state-parking (Cryo-Sleep) and execution governance for autonomous agents built on frameworks like LangGraph, CrewAI, and custom architectures.
+
+### Features
+- **The Behavioral Shield:** Silently profiles your agent's execution paths via Markov Chains. Automatically intercepts 0-probability reasoning anomalies (hallucinations/prompt injections).
+- **Cryo-Sleep State Parking:** Pauses execution and securely uploads massive agent states directly to storage using Signed URLs, entirely bypassing serverless timeouts and webhook payload limits.
+- **Smart-Accept Drift Adaptation:** Approval decisions mathematically alter the baseline. Old unused reasoning paths decay automatically via Exponential Moving Average (EMA).
 
 ## Installation
 
@@ -60,14 +66,17 @@ import asyncio
 from letsping import LetsPing
 
 async def main():
+async def main():
     client = LetsPing()
     
-    # Non-blocking wait
+    # Non-blocking wait, with massive state snapshot
+    # The state is AES-GCM encrypted and direct-uploaded to S3, bypassing payloads
     decision = await client.aask(
         service="github-agent",
         action="merge_pr",
         payload={"pr_id": 42},
-        timeout=3600 # 1 hour timeout
+        timeout=3600, # 1 hour timeout
+        state_snapshot=graph.get_state()
     )
 
 asyncio.run(main())

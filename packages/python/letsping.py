@@ -5,6 +5,8 @@ import logging
 import asyncio
 import random
 import base64
+import hmac
+import hashlib
 from typing import Optional, Dict, Any, Literal, TypedDict, Callable
 from importlib.metadata import version as _pkg_version, PackageNotFoundError
 
@@ -16,7 +18,13 @@ try:
 except ImportError:
     _CRYPTO_AVAILABLE = False
 
-
+try:
+    from opentelemetry import trace
+    _OTEL_AVAILABLE = True
+    _tracer = trace.get_tracer("letsping-sdk")
+except ImportError:
+    _OTEL_AVAILABLE = False
+    _tracer = None
 
 def _encrypt_payload(key_b64: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     """Encrypt a payload dict with AES-256-GCM. Returns an EncEnvelope dict."""
@@ -95,7 +103,7 @@ DEFAULT_BASE_URL = "https://letsping.co/api"
 try:
     VERSION = _pkg_version("letsping")
 except PackageNotFoundError:
-    VERSION = "0.1.2"  # fallback during local development
+    VERSION = "0.1.5"
 
 __all__ = [
     "LetsPing",
@@ -175,6 +183,19 @@ class LetsPing:
         except Exception:
             return val  # wrong key or corrupt — return as-is
 
+    def _prepare_state_upload(self, state_snapshot: Dict[str, Any], fallback_dek: Optional[str]) -> tuple:
+        if self._enc_key:
+            return self._encrypt(state_snapshot), "application/json"
+        elif fallback_dek and _CRYPTO_AVAILABLE:
+            key = base64.b64decode(fallback_dek)
+            aesgcm = AESGCM(key)
+            iv = os.urandom(12)
+            plain = json.dumps(state_snapshot).encode("utf-8")
+            ct = aesgcm.encrypt(iv, plain, None)
+            return iv + ct, "application/octet-stream"
+        else:
+            return state_snapshot, "application/json"
+
     def close(self) -> None:
         """Close the synchronous HTTP client. Call this when done in non-async usage."""
         try:
@@ -214,7 +235,8 @@ class LetsPing:
         payload: Dict[str, Any], 
         priority: Priority = "medium", 
         role: Optional[str] = None,
-        timeout: int = 86400
+        timeout: int = 86400,
+        state_snapshot: Optional[Dict[str, Any]] = None
     ) -> Decision:
         """
         Pauses execution until a human decision is rendered.
@@ -236,8 +258,22 @@ class LetsPing:
             ApprovalRejectedError: If the human rejects the request.
             TimeoutError: If no decision is made within the timeout period.
         """
-        request_id = self.defer(service, action, payload, priority, role=role)
-        return self.wait(request_id, timeout=timeout)
+        if _OTEL_AVAILABLE and _tracer:
+            with _tracer.start_as_current_span(
+                "letsping.ask", 
+                attributes={"letsping.service": service, "letsping.action": action, "letsping.priority": priority}
+            ) as span:
+                request_id = self.defer(service, action, payload, priority, role=role, state_snapshot=state_snapshot)
+                span.set_attribute("letsping.request_id", request_id)
+                decision = self.wait(request_id, timeout=timeout)
+                span.set_attribute("letsping.status", decision["status"])
+                actor = decision.get("metadata", {}).get("actor_id")
+                if actor:
+                    span.set_attribute("letsping.actor_id", actor)
+                return decision
+        else:
+            request_id = self.defer(service, action, payload, priority, role=role, state_snapshot=state_snapshot)
+            return self.wait(request_id, timeout=timeout)
 
     def defer(
         self, 
@@ -246,7 +282,8 @@ class LetsPing:
         payload: Dict[str, Any], 
         priority: Priority = "medium",
         role: Optional[str] = None,
-        callback_url: Optional[str] = None
+        callback_url: Optional[str] = None,
+        state_snapshot: Optional[Dict[str, Any]] = None
     ) -> str:
         """
         Registers a request and returns immediately (Non-blocking).
@@ -270,8 +307,41 @@ class LetsPing:
             "metadata": metadata
         }
 
-        resp = self._handle_response(self._client.post("/ingest", json=body))
-        return resp["id"]
+        if _OTEL_AVAILABLE and _tracer:
+            with _tracer.start_as_current_span(
+                "letsping.defer", 
+                attributes={"letsping.service": service, "letsping.action": action, "letsping.priority": priority}
+            ) as span:
+                resp = self._handle_response(self._client.post("/ingest", json=body))
+                req_id = resp["id"]
+                upload_url = resp.get("uploadUrl")
+                fallback_dek = resp.get("dek")
+                if upload_url and state_snapshot:
+                    try:
+                        data, content_type = self._prepare_state_upload(state_snapshot, fallback_dek)
+                        if isinstance(data, bytes):
+                            self._client.put(upload_url, content=data, headers={"Content-Type": content_type})
+                        else:
+                            self._client.put(upload_url, json=data)
+                    except Exception as e:
+                        logger.warning(f"LetsPing: Failed to upload state_snapshot: {e}")
+                span.set_attribute("letsping.request_id", req_id)
+                return req_id
+        else:
+            resp = self._handle_response(self._client.post("/ingest", json=body))
+            req_id = resp["id"]
+            upload_url = resp.get("uploadUrl")
+            fallback_dek = resp.get("dek")
+            if upload_url and state_snapshot:
+                try:
+                    data, content_type = self._prepare_state_upload(state_snapshot, fallback_dek)
+                    if isinstance(data, bytes):
+                        self._client.put(upload_url, content=data, headers={"Content-Type": content_type})
+                    else:
+                        self._client.put(upload_url, json=data)
+                except Exception as e:
+                    logger.warning(f"LetsPing: Failed to upload state_snapshot: {e}")
+            return req_id
 
     def wait(self, request_id: str, timeout: int = 86400) -> Decision:
         """Resumes waiting for an existing request ID."""
@@ -305,11 +375,26 @@ class LetsPing:
         action: str, 
         payload: Dict[str, Any], 
         priority: Priority = "medium", 
-        timeout: int = 86400
+        timeout: int = 86400,
+        state_snapshot: Optional[Dict[str, Any]] = None
     ) -> Decision:
         """Async non-blocking wait. Compatible with asyncio event loops."""
-        request_id = await self.adefer(service, action, payload, priority)
-        return await self.await_(request_id, timeout=timeout)
+        if _OTEL_AVAILABLE and _tracer:
+            with _tracer.start_as_current_span(
+                "letsping.aask", 
+                attributes={"letsping.service": service, "letsping.action": action, "letsping.priority": priority}
+            ) as span:
+                request_id = await self.adefer(service, action, payload, priority, state_snapshot=state_snapshot)
+                span.set_attribute("letsping.request_id", request_id)
+                decision = await self.await_(request_id, timeout=timeout)
+                span.set_attribute("letsping.status", decision["status"])
+                actor = decision.get("metadata", {}).get("actor_id")
+                if actor:
+                    span.set_attribute("letsping.actor_id", actor)
+                return decision
+        else:
+            request_id = await self.adefer(service, action, payload, priority, state_snapshot=state_snapshot)
+            return await self.await_(request_id, timeout=timeout)
 
     async def adefer(
         self, 
@@ -318,6 +403,7 @@ class LetsPing:
         payload: Dict[str, Any], 
         priority: Priority = "medium",
         role: Optional[str] = None,
+        state_snapshot: Optional[Dict[str, Any]] = None
     ) -> str:
         metadata: Dict[str, Any] = {"sdk": "python"}
         if role:
@@ -329,9 +415,43 @@ class LetsPing:
             "priority": priority,
             "metadata": metadata,
         }
-        resp = await self._aclient.post("/ingest", json=body)
-        data = self._handle_response(resp)
-        return data["id"]
+        if _OTEL_AVAILABLE and _tracer:
+            with _tracer.start_as_current_span(
+                "letsping.adefer", 
+                attributes={"letsping.service": service, "letsping.action": action, "letsping.priority": priority}
+            ) as span:
+                resp = await self._aclient.post("/ingest", json=body)
+                data_resp = self._handle_response(resp)
+                req_id = data_resp["id"]
+                upload_url = data_resp.get("uploadUrl")
+                fallback_dek = data_resp.get("dek")
+                if upload_url and state_snapshot:
+                    try:
+                        data, content_type = self._prepare_state_upload(state_snapshot, fallback_dek)
+                        if isinstance(data, bytes):
+                            await self._aclient.put(upload_url, content=data, headers={"Content-Type": content_type})
+                        else:
+                            await self._aclient.put(upload_url, json=data)
+                    except Exception as e:
+                        logger.warning(f"LetsPing: Failed to upload state_snapshot: {e}")
+                span.set_attribute("letsping.request_id", req_id)
+                return req_id
+        else:
+            resp = await self._aclient.post("/ingest", json=body)
+            data_resp = self._handle_response(resp)
+            req_id = data_resp["id"]
+            upload_url = data_resp.get("uploadUrl")
+            fallback_dek = data_resp.get("dek")
+            if upload_url and state_snapshot:
+                try:
+                    data, content_type = self._prepare_state_upload(state_snapshot, fallback_dek)
+                    if isinstance(data, bytes):
+                        await self._aclient.put(upload_url, content=data, headers={"Content-Type": content_type})
+                    else:
+                        await self._aclient.put(upload_url, json=data)
+                except Exception as e:
+                    logger.warning(f"LetsPing: Failed to upload state_snapshot: {e}")
+            return req_id
 
     async def await_(self, request_id: str, timeout: int = 86400) -> Decision:
         start_time = time.time()
@@ -397,6 +517,104 @@ class LetsPing:
                 return f"ERROR: Input parsing failed: {str(e)}"
                 
         return human_approval_tool
+
+    def webhook_handler(
+        self,
+        payload_str: str,
+        signature_header: str,
+        webhook_secret: str
+    ) -> Dict[str, Any]:
+        """Validates and hydrates a LetsPing webhook payload synchronously."""
+        mac = hmac.new(webhook_secret.encode('utf-8'), payload_str.encode('utf-8'), hashlib.sha256).hexdigest()
+        sig_parts = dict(p.split('=', 1) for p in signature_header.split(',') if '=' in p)
+        
+        if sig_parts.get("v1") != mac:
+            raise LetsPingError("LetsPing Error: Invalid webhook signature")
+            
+        payload = json.loads(payload_str)
+        data = payload.get("data", {})
+        state_snapshot = None
+        
+        state_url = data.get("state_download_url")
+        if state_url:
+            try:
+                res = self._client.get(state_url)
+                if res.status_code == 200:
+                    try:
+                        enc_state = res.json()
+                        state_snapshot = self._decrypt(enc_state)
+                    except json.JSONDecodeError:
+                        fallback_dek = data.get("dek")
+                        if fallback_dek and _CRYPTO_AVAILABLE:
+                            key = base64.b64decode(fallback_dek)
+                            aesgcm = AESGCM(key)
+                            binary_data = res.content
+                            iv = binary_data[:12]
+                            ct = binary_data[12:]
+                            plain = aesgcm.decrypt(iv, ct, None)
+                            state_snapshot = json.loads(plain.decode("utf-8"))
+                        else:
+                            state_snapshot = None
+                else:
+                    logger.warning(f"LetsPing: Could not fetch state_snapshot from storage: {res.text}")
+            except Exception as e:
+                logger.warning(f"LetsPing: Exception downloading state_snapshot: {e}")
+                
+        return {
+            "id": payload.get("id"),
+            "event": payload.get("event"),
+            "data": data,
+            "state_snapshot": state_snapshot
+        }
+
+    async def awebhook_handler(
+        self,
+        payload_str: str,
+        signature_header: str,
+        webhook_secret: str
+    ) -> Dict[str, Any]:
+        """Validates and hydrates a LetsPing webhook payload asynchronously."""
+        mac = hmac.new(webhook_secret.encode('utf-8'), payload_str.encode('utf-8'), hashlib.sha256).hexdigest()
+        sig_parts = dict(p.split('=', 1) for p in signature_header.split(',') if '=' in p)
+        
+        if sig_parts.get("v1") != mac:
+            raise LetsPingError("LetsPing Error: Invalid webhook signature")
+            
+        payload = json.loads(payload_str)
+        data = payload.get("data", {})
+        state_snapshot = None
+        
+        state_url = data.get("state_download_url")
+        if state_url:
+            try:
+                res = await self._aclient.get(state_url)
+                if res.status_code == 200:
+                    try:
+                        enc_state = res.json()
+                        state_snapshot = self._decrypt(enc_state)
+                    except json.JSONDecodeError:
+                        fallback_dek = data.get("dek")
+                        if fallback_dek and _CRYPTO_AVAILABLE:
+                            key = base64.b64decode(fallback_dek)
+                            aesgcm = AESGCM(key)
+                            binary_data = res.content
+                            iv = binary_data[:12]
+                            ct = binary_data[12:]
+                            plain = aesgcm.decrypt(iv, ct, None)
+                            state_snapshot = json.loads(plain.decode("utf-8"))
+                        else:
+                            state_snapshot = None
+                else:
+                    logger.warning(f"LetsPing: Could not fetch state_snapshot from storage: {res.text}")
+            except Exception as e:
+                logger.warning(f"LetsPing: Exception downloading state_snapshot: {e}")
+                
+        return {
+            "id": payload.get("id"),
+            "event": payload.get("event"),
+            "data": data,
+            "state_snapshot": state_snapshot
+        }
 
     def _handle_response(self, response: httpx.Response) -> Dict[str, Any]:
         if response.status_code == 401 or response.status_code == 403:
