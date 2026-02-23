@@ -2,7 +2,7 @@
 
 Official command-line interface for [LetsPing](https://letsping.co).
 
-This tool creates a secure bidirectional tunnel between your local development environment and the LetsPing cloud dashboard. It enables real-time human-in-the-loop approval of agent actions running on `localhost` without requiring public deployment.
+This tool creates a secure bidirectional tunnel between your local development environment and the LetsPing cloud dashboard. It enables realtime human-in-the-loop approval of agent actions running on `localhost` without requiring public deployment.
 
 ## Quick Start
 

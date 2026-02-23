@@ -3,25 +3,23 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { LetsPing, Priority } from "@letsping/sdk";
+import { LetsPing, computeDiff } from "@letsping/sdk";
 
-// Ensure API Key is present
+const { version } = require("../package.json") as { version: string };
+
 const apiKey = process.env.LETSPING_API_KEY;
 if (!apiKey) {
     console.error("Error: LETSPING_API_KEY environment variable is required.");
     process.exit(1);
 }
 
-// Initialize LetsPing SDK
 const lp = new LetsPing(apiKey);
 
-// Create MCP Server
 const server = new McpServer({
     name: "letsping",
-    version: "0.1.2"
+    version
 });
 
-// Define 'ask_human' Tool
 server.tool(
     "ask_human",
     "Request approval or a decision from a human operator. Use this when you need confirmation, authorization, or input before proceeding with a critical action.",
@@ -33,33 +31,54 @@ server.tool(
         timeout: z.number().optional().describe("Timeout in milliseconds. Defaults to 24 hours."),
         role: z.string().optional().describe("The team or role required for approval (e.g. 'finance', 'devops', 'legal').")
     },
-    async ({ service, action, payload, priority, timeout, role }) => {
+    async ({ service, action, payload, priority, timeout, role }: any) => {
         try {
-            console.error(`[LetsPing] Requesting human approval for ${service}:${action} (Role: ${role || "Any"})...`);
+            console.error(`[LetsPing] Requesting human approval for ${service}:${action}...`);
 
             const decision = await lp.ask({
                 service,
                 action,
                 payload,
-                priority: (priority as Priority) || "medium",
+                priority: priority || "medium",
                 timeoutMs: timeout,
-                role
+                role: role || undefined,
             });
 
             if (decision.status === "REJECTED") {
+
                 return {
                     content: [{
                         type: "text",
-                        text: `ACTION_REJECTED: The human operator rejected this action. Reason: ${decision.reason || "No reason provided."}`
+                        text: `ACTION_REJECTED: The human operator rejected this action. Reason: ${decision.payload?.reason || "No reason provided."}`
                     }]
                 };
             }
 
-            // Approved
+            if (decision.patched_payload) {
+                const diff = computeDiff(decision.payload, decision.patched_payload);
+                const diff_summary = diff ? { changes: diff } : { changes: "Unknown structure changes" };
+
+                return {
+                    content: [{
+                        type: "text",
+                        text: JSON.stringify({
+                            status: "APPROVED_WITH_MODIFICATIONS",
+                            message: "The human reviewer authorized this action but modified your original payload. Please review the diff_summary to learn from this correction.",
+                            diff_summary,
+                            original_payload: decision.payload,
+                            executed_payload: decision.patched_payload
+                        })
+                    }]
+                };
+            }
+
             return {
                 content: [{
                     type: "text",
-                    text: JSON.stringify(decision.patched_payload || decision.payload, null, 2)
+                    text: JSON.stringify({
+                        status: "APPROVED",
+                        executed_payload: decision.payload
+                    })
                 }]
             };
 

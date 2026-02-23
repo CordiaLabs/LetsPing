@@ -41,5 +41,5 @@ Request approval or input from a human operator.
 ## Development
 
 1. Clone the repo.
-2. Run `npm install`.
-3. Run `npm run build`.
+2. Run `pnpm install`.
+3. Run `pnpm build`.

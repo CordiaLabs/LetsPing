@@ -1,5 +1,5 @@
 import { DynamicStructuredTool } from "@langchain/core/tools";
-import { LetsPing } from "@letsping/sdk";
+import { LetsPing, computeDiff } from "@letsping/sdk";
 import { z } from "zod";
 
 interface AdapterOptions<T extends z.ZodType> {
@@ -10,12 +10,9 @@ interface AdapterOptions<T extends z.ZodType> {
     service?: string;
     priority?: "low" | "medium" | "high" | "critical";
     timeout?: number;
+    handler?: (args: z.infer<T>) => Promise<any> | any;
 }
 
-/**
- * Creates a LangChain Tool that pauses execution for human approval.
- * Compatible with LangGraph and standard Agents.
- */
 export function createLetsPingTool<T extends z.ZodType>(options: AdapterOptions<T>) {
     if (!options.apiKey) {
         throw new Error("LetsPing Adapter Error: 'apiKey' is required.");
@@ -46,11 +43,35 @@ export function createLetsPingTool<T extends z.ZodType>(options: AdapterOptions<
                     });
                 }
 
-                return JSON.stringify({
+                const executed_input = decision.patched_payload || decision.payload;
+                let execution_output;
+                if (options.handler) {
+                    execution_output = await options.handler(executed_input);
+                }
+
+                if (decision.patched_payload) {
+                    const diff = computeDiff(decision.payload, decision.patched_payload);
+                    const diff_summary = diff ? { changes: diff } : { changes: "Unknown structure changes" };
+
+                    const letsping_context = {
+                        status: "APPROVED_WITH_MODIFICATIONS",
+                        message: "The human reviewer authorized this action but modified your original payload. Please review the diff_summary to learn from this correction.",
+                        diff_summary,
+                        original_input: decision.payload,
+                        executed_input,
+                        metadata: decision.metadata
+                    };
+
+                    return JSON.stringify(options.handler ? { letsping_context, execution_output } : letsping_context);
+                }
+
+                const letsping_context = {
                     status: "APPROVED",
-                    approved_input: decision.patched_payload || decision.payload,
+                    executed_input,
                     metadata: decision.metadata
-                });
+                };
+
+                return JSON.stringify(options.handler ? { letsping_context, execution_output } : letsping_context);
 
             } catch (error: any) {
                 return JSON.stringify({

@@ -6,9 +6,12 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-const SUPABASE_URL = "https://tqphlqmmamdjoufqnnka.supabase.co";
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRxcGhscW1tYW1kam91ZnFubmthIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjkxMjIzNjksImV4cCI6MjA4NDY5ODM2OX0.N3EU5ovNeeh6pkJsi_emHuMFm5vAguC3qR0S4Qq5K14";
+const SUPABASE_URL = process.env.LETSPING_SUPABASE_URL || "https://tqphlqmmamdjoufqnnka.supabase.co";
+const SUPABASE_ANON_KEY = process.env.LETSPING_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRxcGhscW1tYW1kam91ZnFubmthIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjkxMjIzNjksImV4cCI6MjA4NDY5ODM2OX0.N3EU5ovNeeh6pkJsi_emHuMFm5vAguC3qR0S4Qq5K14";
 const WEB_APP_URL = process.env.LETSPING_DASHBOARD_URL || "https://letsping.co";
+
+let CLI_VERSION = "0.1.2";
+try { CLI_VERSION = require("../package.json").version; } catch {  }
 interface RequestPayload {
   id?: string;
   service?: string;
@@ -31,7 +34,7 @@ const program = new Command();
 program
   .name('letsping')
   .description('CLI for LetsPing.co - The Human-in-the-Loop Control Plane')
-  .version('0.1.2');
+  .version(CLI_VERSION);
 
 program
   .command('dev')
@@ -73,9 +76,14 @@ function runDevTunnel() {
           'Access-Control-Allow-Origin': '*'
         });
 
+        const resolvedStatus = update.status === 'APPROVED' && update.patched_payload
+          ? 'APPROVED'
+          : update.status;
+
         res.end(JSON.stringify({
-          status: update.status,
-          payload: update.patched_payload || undefined,
+          status: resolvedStatus,
+          payload: update.patched_payload ?? undefined,
+          patched_payload: update.patched_payload ?? undefined,
           reason: update.reason,
           metadata: { source: 'local_dev_tunnel', timestamp: new Date().toISOString() }
         }));

@@ -1,29 +1,32 @@
 {
-    "name": "@letsping/sdk",
-    "version": "0.1.2",
-    "description": "The Human-in-the-Loop SDK for Autonomous Agents",
-    "main": "./dist/index.js",
-    "module": "./dist/index.mjs",
-    "types": "./dist/index.d.ts",
-    "exports": {
-        ".": {
-            "types": "./dist/index.d.ts",
-            "require": "./dist/index.js",
-            "import": "./dist/index.mjs"
-        }
-    },
-    "scripts": {
-        "build": "tsup",
-        "dev": "tsup --watch",
-        "clean": "rm -rf dist .turbo"
-    },
-    "dependencies": {},
-    "devDependencies": {
-        "tsup": "^8.0.0",
-        "typescript": "^5.7.2",
-        "@types/node": "^22.0.0"
-    },
-    "publishConfig": {
-        "access": "public"
+  "name": "@letsping/sdk",
+  "version": "0.1.3",
+  "description": "The Human-in-the-Loop SDK for Autonomous Agents",
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "files": [
+    "dist"
+  ],
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "require": "./dist/index.js",
+      "import": "./dist/index.mjs"
     }
+  },
+  "scripts": {
+    "build": "tsup && tsc --emitDeclarationOnly --outDir dist",
+    "dev": "tsup --watch",
+    "clean": "rm -rf dist .turbo"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "tsup": "^8.0.0",
+    "typescript": "^5.7.2",
+    "@types/node": "^22.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
 }
