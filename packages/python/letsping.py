@@ -103,7 +103,7 @@ DEFAULT_BASE_URL = "https://www.letsping.co/api/"
 try:
     VERSION = _pkg_version("letsping")
 except PackageNotFoundError:
-    VERSION = "0.1.7"
+    VERSION = "0.1.8"
 
 __all__ = [
     "LetsPing",
@@ -355,7 +355,9 @@ class LetsPing:
                 
                 if resp.status_code == 200:
                     decision = resp.json()
-                    if decision["status"] in ("APPROVED", "REJECTED"):
+                    if decision["status"] == "REJECTED":
+                        raise ApprovalRejectedError(decision.get("metadata", {}).get("reason", "No reason provided"))
+                    if decision["status"] == "APPROVED":
                         return self._parse_decision(decision)
                 
                 elif resp.status_code not in (404, 429, 500, 502, 503, 504):
@@ -463,7 +465,9 @@ class LetsPing:
                 resp = await self._aclient.get(f"status/{request_id}")
                 if resp.status_code == 200:
                     decision = resp.json()
-                    if decision["status"] in ("APPROVED", "REJECTED"):
+                    if decision["status"] == "REJECTED":
+                        raise ApprovalRejectedError(decision.get("metadata", {}).get("reason", "No reason provided"))
+                    if decision["status"] == "APPROVED":
                         return self._parse_decision(decision)
                 elif resp.status_code not in (404, 429, 500, 502, 503, 504):
                     self._handle_response(resp)
