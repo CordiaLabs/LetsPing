@@ -112,7 +112,3 @@ The SDK uses typed exceptions for control flow.
 * `ApprovalRejectedError`: Raised when the human explicitly clicks "Reject".
 * `TimeoutError`: Raised when the duration (default 24h) expires without a decision.
 * `LetsPingError`: Base class for API or network failures.
-
-## License
-
-MIT

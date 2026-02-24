@@ -103,7 +103,7 @@ DEFAULT_BASE_URL = "https://letsping.co/api"
 try:
     VERSION = _pkg_version("letsping")
 except PackageNotFoundError:
-    VERSION = "0.1.5"
+    VERSION = "0.1.6"
 
 __all__ = [
     "LetsPing",
@@ -159,7 +159,7 @@ class LetsPing:
 
         self._enc_key = encryption_key or os.getenv("LETSPING_ENCRYPTION_KEY") or None
 
-        self._base_url = (base_url or os.getenv("LETSPING_BASE_URL", DEFAULT_BASE_URL)).rstrip("/")
+        self._base_url = (base_url or os.getenv("LETSPING_BASE_URL", DEFAULT_BASE_URL)).rstrip("/") + "/"
         self._timeout = timeout
         self._headers = {
             "Authorization": f"Bearer {self._api_key}",
@@ -312,7 +312,7 @@ class LetsPing:
                 "letsping.defer", 
                 attributes={"letsping.service": service, "letsping.action": action, "letsping.priority": priority}
             ) as span:
-                resp = self._handle_response(self._client.post("/ingest", json=body))
+                resp = self._handle_response(self._client.post("ingest", json=body))
                 req_id = resp["id"]
                 upload_url = resp.get("uploadUrl")
                 fallback_dek = resp.get("dek")
@@ -328,7 +328,7 @@ class LetsPing:
                 span.set_attribute("letsping.request_id", req_id)
                 return req_id
         else:
-            resp = self._handle_response(self._client.post("/ingest", json=body))
+            resp = self._handle_response(self._client.post("ingest", json=body))
             req_id = resp["id"]
             upload_url = resp.get("uploadUrl")
             fallback_dek = resp.get("dek")
@@ -351,7 +351,7 @@ class LetsPing:
         while time.time() - start_time < timeout:
             attempt += 1
             try:
-                resp = self._client.get(f"/status/{request_id}")
+                resp = self._client.get(f"status/{request_id}")
                 
                 if resp.status_code == 200:
                     decision = resp.json()
@@ -420,7 +420,7 @@ class LetsPing:
                 "letsping.adefer", 
                 attributes={"letsping.service": service, "letsping.action": action, "letsping.priority": priority}
             ) as span:
-                resp = await self._aclient.post("/ingest", json=body)
+                resp = await self._aclient.post("ingest", json=body)
                 data_resp = self._handle_response(resp)
                 req_id = data_resp["id"]
                 upload_url = data_resp.get("uploadUrl")
@@ -437,7 +437,7 @@ class LetsPing:
                 span.set_attribute("letsping.request_id", req_id)
                 return req_id
         else:
-            resp = await self._aclient.post("/ingest", json=body)
+            resp = await self._aclient.post("ingest", json=body)
             data_resp = self._handle_response(resp)
             req_id = data_resp["id"]
             upload_url = data_resp.get("uploadUrl")
@@ -460,7 +460,7 @@ class LetsPing:
         while time.time() - start_time < timeout:
             attempt += 1
             try:
-                resp = await self._aclient.get(f"/status/{request_id}")
+                resp = await self._aclient.get(f"status/{request_id}")
                 if resp.status_code == 200:
                     decision = resp.json()
                     if decision["status"] in ("APPROVED", "REJECTED"):
