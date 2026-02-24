@@ -99,11 +99,11 @@ def compute_diff(original: Any, patched: Any) -> Any:
 
 logger = logging.getLogger("letsping")
 
-DEFAULT_BASE_URL = "https://letsping.co/api"
+DEFAULT_BASE_URL = "https://www.letsping.co/api/"
 try:
     VERSION = _pkg_version("letsping")
 except PackageNotFoundError:
-    VERSION = "0.1.6"
+    VERSION = "0.1.7"
 
 __all__ = [
     "LetsPing",
