@@ -1,6 +1,6 @@
 import { createCipheriv, createDecipheriv, randomBytes, createHmac } from "node:crypto";
 
-let SDK_VERSION = "0.1.5";
+let SDK_VERSION = "0.1.6";
 try {
 
     SDK_VERSION = require("../package.json").version;

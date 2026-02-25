@@ -13,11 +13,11 @@ LetsPing is a high-throughput infrastructure layer that allows AI agents to paus
 
 ## Key Features
 
-### Universal MCP Server
-Connect any agentic environment (Claude Desktop, Cursor, LangChain) instantly via the Model Context Protocol.
-```bash
-npx @letsping/mcp
-```
+### End-to-End Encryption (E2EE)
+Privacy is non-negotiable. Sensitive agent data is encrypted using AES-256-GCM before leaving the agent's environment. Only your human operators hold the keys.
+
+### Cryo-Sleep State Snapshots
+Agents can "park" their entire behavioral state (snapshots) in the cloud while waiting for human review. Execution resumes seamlessly only after approval.
 
 ### Rich Patching (Structured Editor)
 Agents make typos. Don't reject the whole run—**fix it in-flight.**
@@ -32,6 +32,12 @@ letsping.ask(..., role="finance") # Pings the CFO/Treasury
 letsping.ask(..., role="devops")  # Pings the On-Call Engineer
 ```
 
+### Universal MCP Server
+Connect any agentic environment (Claude Desktop, Cursor, LangChain) instantly via the Model Context Protocol.
+```bash
+npx @letsping/mcp
+```
+
 ---
 
 ## Monorepo Structure
@@ -40,11 +46,11 @@ This repository is a monorepo containing the core components of the LetsPing con
 
 | Package | Status | Description |
 | :--- | :--- | :--- |
-| [`@letsping/sdk`](/packages/sdk) | `v0.1.2` | Core TypeScript/Node.js SDK with full type safety. |
-| [`letsping`](/packages/python) | `v0.1.2` | Native Python SDK for LangChain, Autogen, and CrewAI. |
-| [`@letsping/adapters`](/packages/adapters) | `v0.1.2` | Drop-in tools for Vercel AI SDK and LangGraph. |
-| [`@letsping/mcp`](/packages/mcp) | `v0.1.2` | Standardized Model Context Protocol server. |
-| [`@letsping/cli`](/packages/cli) | `v0.1.2` | Local development and administrative CLI. |
+| [`@letsping/sdk`](/packages/sdk) | `v0.1.6` | Core TypeScript/Node.js SDK with full type safety and E2EE. |
+| [`letsping`](/packages/python) | `v0.1.9` | Core Python SDK with async-native support and E2EE. |
+| [`@letsping/adapters`](/packages/adapters) | `v0.1.5` | Drop-in tools for Vercel AI SDK and LangGraph. |
+| [`@letsping/mcp`](/packages/mcp) | `v0.1.5` | Standardized Model Context Protocol server. |
+| [`@letsping/cli`](/packages/cli) | `v0.1.5` | Local development and administrative CLI. |
 | `apps/web` | Internal | Next.js 15 Control Plane Dashboard and Ingestion API. |
 
 ---

@@ -1,6 +1,6 @@
 {
   "name": "@letsping/sdk",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Behavioral Firewall and Cryo-Sleep State Parking for Autonomous Agents",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
@@ -10,6 +10,11 @@
       "types": "./dist/index.d.ts",
       "require": "./dist/index.js",
       "import": "./dist/index.mjs"
+    },
+    "./integrations/langgraph": {
+      "types": "./dist/integrations/langgraph.d.ts",
+      "require": "./dist/integrations/langgraph.js",
+      "import": "./dist/integrations/langgraph.mjs"
     }
   },
   "scripts": {
@@ -17,20 +22,29 @@
     "dev": "tsup --watch",
     "clean": "rm -rf dist .turbo"
   },
-  "dependencies": {},
   "peerDependencies": {
+    "@langchain/core": ">=0.1.52",
+    "@langchain/langgraph": ">=0.0.1",
     "@opentelemetry/api": "^1.0.0"
   },
   "peerDependenciesMeta": {
     "@opentelemetry/api": {
       "optional": true
+    },
+    "@langchain/langgraph": {
+      "optional": true
+    },
+    "@langchain/core": {
+      "optional": true
     }
   },
   "devDependencies": {
-    "tsup": "^8.0.0",
-    "typescript": "^5.7.2",
+    "@langchain/core": "^1.1.28",
+    "@langchain/langgraph": "^1.1.5",
+    "@opentelemetry/api": "^1.9.0",
     "@types/node": "^22.0.0",
-    "@opentelemetry/api": "^1.9.0"
+    "tsup": "^8.0.0",
+    "typescript": "^5.7.2"
   },
   "publishConfig": {
     "access": "public"

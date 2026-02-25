@@ -10,9 +10,9 @@ LetsPing is a behavioral firewall and Human-in-the-Loop (HITL) infrastructure la
 - **Smart-Accept Drift Adaptation:** Approval decisions mathematically alter the baseline. Old unused reasoning paths decay automatically via Exponential Moving Average (EMA).
 
 ## Requirements
-
 - Node.js 18+
 - TypeScript 5+ (recommended)
+- (Optional) `@langchain/langgraph` and `@langchain/core` for state persistence
 
 ## Installation
 
@@ -105,6 +105,21 @@ if (body.status === "APPROVED") {
     }
     // Manually push `hydratedState` back into your LangGraph/Vercel thread
 }
+```
+
+### LangGraph Integration (Persisted State)
+
+LetsPing provides a `LetsPingCheckpointer` for LangGraph JS/TS that automatically encrypts and parks your agent's state in Cryo-Sleep storage.
+
+```typescript
+import { StateGraph } from "@langchain/langgraph";
+import { LetsPing } from "@letsping/sdk";
+
+// Import the checkpointer from the specific integration path
+import { LetsPingCheckpointer } from "@letsping/sdk/integrations/langgraph";
+
+const lp = new LetsPing(process.env.LETSPING_API_KEY!);
+const checkpointer = new LetsPingCheckpointer(lp);
 ```
 
 ## API Reference

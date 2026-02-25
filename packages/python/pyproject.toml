@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "letsping"
-version = "0.1.8"
+version = "0.1.9"
 description = "Behavioral Firewall and Cryo-Sleep State Parking for AI Agents"
 readme = "README.md"
 authors = [{ name = "LetsPing Team", email = "hello@letsping.co" }]
@@ -22,9 +22,12 @@ dependencies = [
 ]
 
 
+[project.optional-dependencies]
+langgraph = ["langgraph>=0.0.15", "langchain-core>=0.1.52"]
+
 [project.urls]
 Homepage = "https://letsping.co"
 Repository = "https://github.com/CordiaLabs/letsping"
 
 [tool.hatch.build.targets.wheel]
-packages = ["letsping.py"]
+packages = ["letsping"]

@@ -18,6 +18,8 @@ LetsPing is a behavioral firewall and governance layer. It provides mathematical
 ```bash
 pip install letsping
 
+# Or with LangGraph support
+pip install "letsping[langgraph]"
 ```
 
 ## Configuration
@@ -103,6 +105,25 @@ tools = [
     )
 ]
 
+```
+
+### 4. LangGraph Integration (Persisted State)
+
+LetsPing provides a `LetsPingCheckpointer` for LangGraph that automatically encrypts and parks your agent's state in Cryo-Sleep storage.
+
+```python
+from langgraph.graph import StateGraph
+from letsping import LetsPing
+from letsping.integrations.langgraph import LetsPingCheckpointer
+
+client = LetsPing()
+checkpointer = LetsPingCheckpointer(client)
+
+# Initialize the graph with the LetsPing checkpointer
+builder = StateGraph(...)
+graph = builder.compile(checkpointer=checkpointer)
+
+# Now, every 'thread_id' state is securely parked when the agent pauses
 ```
 
 ## Error Handling
