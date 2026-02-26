@@ -1,6 +1,6 @@
 import { createCipheriv, createDecipheriv, randomBytes, createHmac } from "node:crypto";
 
-let SDK_VERSION = "0.1.6";
+let SDK_VERSION = "0.2.0";
 try {
 
     SDK_VERSION = require("../package.json").version;
@@ -37,6 +37,14 @@ export interface RequestOptions {
     timeoutMs?: number;
 
     role?: string;
+
+    /**
+     * Optional distributed tracing identifiers. If provided, these will be
+     * attached to the request envelope so downstream frameworks can stitch
+     * together multi-agent flows.
+     */
+    trace_id?: string;
+    parent_request_id?: string;
 }
 
 export interface Decision {
@@ -222,14 +230,30 @@ export class LetsPing {
             });
         }
 
+        const traceId = options.trace_id;
+        const parentId = options.parent_request_id;
+
+        // Do not mutate caller payload; attach tracing metadata under a reserved key.
+        const basePayload = options.payload || {};
+        const metaKey = "_lp_meta";
+        const existingMeta = (basePayload as any)[metaKey] || {};
+        const enrichedPayload = {
+            ...basePayload,
+            [metaKey]: {
+                ...existingMeta,
+                ...(traceId ? { trace_id: traceId } : {}),
+                ...(parentId ? { parent_request_id: parentId } : {}),
+            },
+        };
+
         try {
             const res = await this.request<{ id: string, uploadUrl?: string, dek?: string }>("POST", "/ingest", {
                 service: options.service,
                 action: options.action,
-                payload: this._encrypt(options.payload),
+                payload: this._encrypt(enrichedPayload),
                 priority: options.priority || "medium",
                 schema: options.schema,
-                metadata: { role: options.role, sdk: "node" }
+                metadata: { role: options.role, sdk: "node", trace_id: traceId, parent_request_id: parentId }
             });
 
             const { id, uploadUrl, dek } = res;
@@ -325,10 +349,28 @@ export class LetsPing {
             });
         }
 
+        const traceId = options.trace_id;
+        const parentId = options.parent_request_id;
+        const basePayload = options.payload || {};
+        const metaKey = "_lp_meta";
+        const existingMeta = (basePayload as any)[metaKey] || {};
+        const enrichedPayload = {
+            ...basePayload,
+            [metaKey]: {
+                ...existingMeta,
+                ...(traceId ? { trace_id: traceId } : {}),
+                ...(parentId ? { parent_request_id: parentId } : {}),
+            },
+        };
+
         try {
             const res = await this.request<{ id: string, uploadUrl?: string, dek?: string }>("POST", "/ingest", {
-                ...options,
-                payload: this._encrypt(options.payload),
+                service: options.service,
+                action: options.action,
+                payload: this._encrypt(enrichedPayload),
+                priority: options.priority || "medium",
+                schema: options.schema,
+                metadata: { role: options.role, sdk: "node", trace_id: traceId, parent_request_id: parentId },
             });
             if (res.uploadUrl && options.state_snapshot) {
                 try {
@@ -436,11 +478,29 @@ export class LetsPing {
         signatureHeader: string,
         webhookSecret: string
     ): Promise<{ id: string; event: string; data: Decision; state_snapshot?: Record<string, any> }> {
-        const hmac = createHmac("sha256", webhookSecret).update(payloadStr).digest("hex");
         const sigParts = signatureHeader.split(",").map(p => p.split("="));
         const sigMap = Object.fromEntries(sigParts);
 
-        if (sigMap["v1"] !== hmac) {
+        const rawTs = sigMap["t"];
+        const rawSig = sigMap["v1"];
+        if (!rawTs || !rawSig) {
+            throw new LetsPingError("LetsPing Error: Missing webhook signature fields", 401);
+        }
+
+        const ts = Number(rawTs);
+        if (!Number.isFinite(ts)) {
+            throw new LetsPingError("LetsPing Error: Invalid webhook timestamp", 401);
+        }
+
+        const now = Date.now();
+        const skewMs = Math.abs(now - ts);
+        const maxSkewMs = 5 * 60 * 1000; // 5 minutes
+        if (skewMs > maxSkewMs) {
+            throw new LetsPingError("LetsPing Error: Webhook replay window exceeded", 401);
+        }
+
+        const expected = createHmac("sha256", webhookSecret).update(payloadStr).digest("hex");
+        if (rawSig !== expected) {
             throw new LetsPingError("LetsPing Error: Invalid webhook signature", 401);
         }
 

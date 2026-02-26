@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "letsping"
-version = "0.1.9"
+version = "0.2.0"
 description = "Behavioral Firewall and Cryo-Sleep State Parking for AI Agents"
 readme = "README.md"
 authors = [{ name = "LetsPing Team", email = "hello@letsping.co" }]

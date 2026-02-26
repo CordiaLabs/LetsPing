@@ -58,6 +58,8 @@ LETSPING_PORT=4000
 
    The request will appear almost instantly in your LetsPing dashboard under the **Localhost** environment.
 
+If you run the **2-minute demo** scripts from `@letsping/sdk` or `letsping` while this tunnel is active and point their base URL at `http://localhost:<port>/api`, all demo traffic will flow through the tunnel and show up in the dashboard tagged as **Localhost**.
+
 ## Important Notes
 
 - The ingestion endpoint is **`http://localhost:<port>/ingest`**  
@@ -66,7 +68,7 @@ LETSPING_PORT=4000
 - Use **POST** requests with JSON payload matching the LetsPing request format.
 
 - The tunnel automatically reconnects on network interruptions.
-### How the local tunnel keeps everything secure & private
+### How the local tunnel keeps everything secure & private (agent-friendly)
 
 The CLI does **not** expose any endpoint to the public internet.
 
@@ -80,6 +82,8 @@ This architecture means:
 - No firewall changes needed
 - No public URL is ever created
 - Works behind NAT, corporate proxies, etc.
+
+Because the tunnel is outbound‑only and scoped to `localhost:<port>`, it is safe for AI agents to start and use it as part of automated workflows (for example via MCP or other system tools), without opening any inbound ports on your machine.
 
 ## Troubleshooting
 

@@ -1,6 +1,6 @@
 {
-    "name": "@letsping/cli",
-    "version": "0.1.5",
+    "name": "letsping",
+    "version": "0.2.1",
     "description": "Localhost HTTP Tunnel for LetsPing Webhooks and Ingestion",
     "bin": {
         "letsping": "./dist/index.js"

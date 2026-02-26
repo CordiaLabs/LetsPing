@@ -81,6 +81,7 @@ Make sure the following compatible versions are installed in your project:
 - The `apiKey` is passed per-tool. For most applications you will use the same key across tools.
 - The `schema` (Zod) is used both for type safety and to generate an editable form in the LetsPing dashboard.
 - If the human modifies values in the form, the resolved payload will contain the updated values (`patched_payload` in the LetsPing SDK response).
-- **Important**: These adapters handle the *execution pause* natively within standard framework constructs, but they do *not* automatically rehydrate the framework once the process exits. You must handle webhook delivery and instantiate your framework resumption logic manually.
+- **Cryo-Sleep / state snapshots**: To park large agent state alongside a tool invocation, use the underlying `@letsping/sdk` client with `state_snapshot` when calling `ask` / `defer` from within your handler logic. The SDK will encrypt and upload the snapshot via signed URL.
+- **Rehydration**: These adapters handle the *execution pause* natively within standard framework constructs, but they do *not* automatically rehydrate the framework once the process exits. You must handle webhook delivery and instantiate your framework resumption logic manually (see the SDK README webhook examples for Next.js / FastAPI).
 
 For full LetsPing API documentation, see: https://letsping.co/docs

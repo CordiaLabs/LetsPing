@@ -1,6 +1,6 @@
 {
   "name": "@letsping/sdk",
-  "version": "0.1.6",
+  "version": "0.2.0",
   "description": "Behavioral Firewall and Cryo-Sleep State Parking for Autonomous Agents",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",

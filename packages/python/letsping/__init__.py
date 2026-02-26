@@ -103,7 +103,7 @@ DEFAULT_BASE_URL = "https://www.letsping.co/api/"
 try:
     VERSION = _pkg_version("letsping")
 except PackageNotFoundError:
-    VERSION = "0.1.9"
+    VERSION = "0.2.0"
 
 __all__ = [
     "LetsPing",
@@ -117,6 +117,7 @@ __all__ = [
 ]
 
 Status = Literal["APPROVED", "REJECTED", "PENDING", "APPROVED_WITH_MODIFICATIONS"]
+Priority = Literal["low", "medium", "high", "critical"]
 
 class Decision(TypedDict):
     status: Status
@@ -283,7 +284,9 @@ class LetsPing:
         priority: Priority = "medium",
         role: Optional[str] = None,
         callback_url: Optional[str] = None,
-        state_snapshot: Optional[Dict[str, Any]] = None
+        state_snapshot: Optional[Dict[str, Any]] = None,
+        trace_id: Optional[str] = None,
+        parent_request_id: Optional[str] = None,
     ) -> str:
         """
         Registers a request and returns immediately (Non-blocking).
@@ -298,6 +301,10 @@ class LetsPing:
             metadata["role"] = role
         if callback_url:
             metadata["callback_url"] = callback_url
+        if trace_id:
+            metadata["trace_id"] = trace_id
+        if parent_request_id:
+            metadata["parent_request_id"] = parent_request_id
 
         body = {
             "service":  service,
@@ -405,11 +412,17 @@ class LetsPing:
         payload: Dict[str, Any], 
         priority: Priority = "medium",
         role: Optional[str] = None,
-        state_snapshot: Optional[Dict[str, Any]] = None
+        state_snapshot: Optional[Dict[str, Any]] = None,
+        trace_id: Optional[str] = None,
+        parent_request_id: Optional[str] = None,
     ) -> str:
         metadata: Dict[str, Any] = {"sdk": "python"}
         if role:
             metadata["role"] = role
+        if trace_id:
+            metadata["trace_id"] = trace_id
+        if parent_request_id:
+            metadata["parent_request_id"] = parent_request_id
         body = {
             "service":  service,
             "action":   action,
@@ -529,10 +542,24 @@ class LetsPing:
         webhook_secret: str
     ) -> Dict[str, Any]:
         """Validates and hydrates a LetsPing webhook payload synchronously."""
-        mac = hmac.new(webhook_secret.encode('utf-8'), payload_str.encode('utf-8'), hashlib.sha256).hexdigest()
         sig_parts = dict(p.split('=', 1) for p in signature_header.split(',') if '=' in p)
-        
-        if sig_parts.get("v1") != mac:
+
+        ts_raw = sig_parts.get("t")
+        sig_raw = sig_parts.get("v1")
+        if not ts_raw or not sig_raw:
+            raise LetsPingError("LetsPing Error: Missing webhook signature fields")
+
+        try:
+            ts = int(ts_raw)
+        except ValueError:
+            raise LetsPingError("LetsPing Error: Invalid webhook timestamp")
+
+        skew_ms = abs(int(time.time() * 1000) - ts)
+        if skew_ms > 5 * 60 * 1000:
+            raise LetsPingError("LetsPing Error: Webhook replay window exceeded")
+
+        mac = hmac.new(webhook_secret.encode('utf-8'), payload_str.encode('utf-8'), hashlib.sha256).hexdigest()
+        if sig_raw != mac:
             raise LetsPingError("LetsPing Error: Invalid webhook signature")
             
         payload = json.loads(payload_str)
@@ -578,10 +605,24 @@ class LetsPing:
         webhook_secret: str
     ) -> Dict[str, Any]:
         """Validates and hydrates a LetsPing webhook payload asynchronously."""
-        mac = hmac.new(webhook_secret.encode('utf-8'), payload_str.encode('utf-8'), hashlib.sha256).hexdigest()
         sig_parts = dict(p.split('=', 1) for p in signature_header.split(',') if '=' in p)
-        
-        if sig_parts.get("v1") != mac:
+
+        ts_raw = sig_parts.get("t")
+        sig_raw = sig_parts.get("v1")
+        if not ts_raw or not sig_raw:
+            raise LetsPingError("LetsPing Error: Missing webhook signature fields")
+
+        try:
+            ts = int(ts_raw)
+        except ValueError:
+            raise LetsPingError("LetsPing Error: Invalid webhook timestamp")
+
+        skew_ms = abs(int(time.time() * 1000) - ts)
+        if skew_ms > 5 * 60 * 1000:
+            raise LetsPingError("LetsPing Error: Webhook replay window exceeded")
+
+        mac = hmac.new(webhook_secret.encode('utf-8'), payload_str.encode('utf-8'), hashlib.sha256).hexdigest()
+        if sig_raw != mac:
             raise LetsPingError("LetsPing Error: Invalid webhook signature")
             
         payload = json.loads(payload_str)
