@@ -1,12 +1,13 @@
 # LetsPing Python SDK
 
 [![PyPI version](https://badge.fury.io/py/letsping.svg)](https://badge.fury.io/py/letsping)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python Versions](https://img.shields.io/pypi/pyversions/letsping.svg)](https://pypi.org/project/letsping/)
 
-The official state management infrastructure for Human-in-the-Loop (HITL) AI agents.
+The official Python client for [LetsPing](https://letsping.co).
 
-LetsPing is a behavioral firewall and governance layer. It provides mathematically secure state-parking (Cryo-Sleep) and execution governance for autonomous agents built on frameworks like LangGraph, CrewAI, and custom architectures.
+LetsPing is a behavioral firewall and Human-in-the-Loop (HITL) infrastructure layer for Agentic AI. It provides mathematically secure state-parking (Cryo-Sleep) and execution governance for autonomous agents built on frameworks like LangGraph, CrewAI, and custom architectures.
+
+**What you get with this package:** One client that connects your agent to the full LetsPing stack: a hosted dashboard for triage and approvals, a Markov-based behavioral firewall, Cryo-Sleep state parking, and audit trails. Use LangGraph or CrewAI for the graph; use LetsPing for the human layer and guardrails.
 
 ### Features
 - **The Behavioral Shield:** Silently profiles your agent's execution paths via Markov Chains. Automatically intercepts 0-probability reasoning anomalies (hallucinations/prompt injections).
@@ -33,6 +34,24 @@ export LETSPING_API_KEY="lp_live_..."
 
 ## Usage
 
+### Minimal drop-in example
+
+The fastest way to see your first approval in the dashboard:
+
+```python
+from letsping import LetsPing
+
+client = LetsPing()  # reads LETSPING_API_KEY from the environment
+
+decision = client.ask(
+    service="billing-agent",
+    action="refund_user",
+    payload={"user_id": "u_123", "amount": 100},
+)
+```
+
+All timeouts in the Python SDK are expressed in **seconds** (for example, `timeout=3600` = 1 hour).
+
 ### 1. The "Ask" Primitive (Blocking)
 
 Use this when you want to pause a script until a human approves.
@@ -42,15 +61,11 @@ from letsping import LetsPing
 
 client = LetsPing()
 
-# Pauses here for up to 24 hours (default)
+# Pauses here for up to 24 hours (default, expressed in seconds)
 decision = client.ask(
-    service="payments-agent",
-    action="transfer_funds",
-    payload={
-        "amount": 5000,
-        "currency": "USD",
-        "recipient": "acct_99"
-    },
+    service="billing-agent",
+    action="refund_user",
+    payload={"user_id": "u_123", "amount": 5000, "currency": "USD"},
     priority="critical"
 )
 
@@ -266,10 +281,37 @@ async def handle_decision(event: dict):
 
 For async frameworks you can also use `awebhook_handler` with the same pattern.
 
+### Agent quickstart (no human)
+
+For headless agents that get their own workspace and send signed ingest calls without a human in the loop:
+
+- `create_agent_workspace(base_url=None)` — Request token → redeem → register in one call. Returns `project_id`, `api_key`, `ingest_url`, `agent_id`, `agent_secret`. Rate limits apply; see [agent quickstart](https://letsping.co/agent/quickstart).
+- `ingest_with_agent_signature(agent_id, agent_secret, service, action, payload, project_id, ingest_url, api_key)` — POST a signed ingest (no hand-rolled HMAC or curl).
+
+```python
+from letsping import create_agent_workspace, ingest_with_agent_signature
+
+creds = create_agent_workspace()  # optional: base_url="https://letsping.co"
+result = ingest_with_agent_signature(
+    creds["agent_id"], creds["agent_secret"],
+    service="my-svc", action="test", payload={},
+    project_id=creds["project_id"], ingest_url=creds["ingest_url"], api_key=creds["api_key"],
+)
+print(result["id"])
+```
+
 ## Error Handling
 
-The SDK uses typed exceptions for control flow.
+The SDK uses typed exceptions for control flow. All API and network errors are raised as `LetsPingError` with optional `status`, `code` (e.g. `LETSPING_402_QUOTA`, `LETSPING_429_RATE_LIMIT`, `LETSPING_TIMEOUT`), and `documentation_url` so you can branch or link users to the right doc (see https://letsping.co/docs#errors).
 
 * `ApprovalRejectedError`: Raised when the human explicitly clicks "Reject".
 * `TimeoutError`: Raised when the duration (default 24h) expires without a decision.
-* `LetsPingError`: Base class for API or network failures.
+* `LetsPingError`: Base class for API or network failures; includes `code` and `documentation_url` when available.
+
+**Status helper:** Use `client.get_request_status(request_id)` after `defer()` to poll for request status without calling the raw HTTP API. See https://letsping.co/docs#requests.
+
+---
+
+**Compatibility:** Python 3.8+. Optional: `letsping[langgraph]` for LangGraph integration.
+
+**License:** MIT. Source: [CordiaLabs/LetsPing](https://github.com/CordiaLabs/LetsPing) (packages/python).

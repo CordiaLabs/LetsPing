@@ -20,18 +20,28 @@ export function createLetsPingTool<T extends z.ZodType>(options: AdapterOptions<
 
     const lp = new LetsPing(options.apiKey);
 
-    return new DynamicStructuredTool({
-        name: options.name,
-        description: `${options.description} [SYSTEM NOTE: This tool pauses execution until a human approves the request via LetsPing. Do not expect an immediate result.]`,
-        schema: options.schema as any,
-        func: async (args: any) => {
-            try {
-                const decision = await lp.ask({
+    const func = async function* (args: any) {
+        try {
+                const request = await lp.defer({
                     service: options.service || "langchain-agent",
                     action: options.name,
                     priority: options.priority || "medium",
                     payload: args,
                     schema: options.schema,
+                    timeoutMs: options.timeout
+                });
+
+                const triageUrl = `https://letsping.co/requests/${request.id}`;
+
+                yield {
+                    status: "intercepted_by_firewall",
+                    reason: "Tool execution paused for human approval via LetsPing.",
+                    triage_url: triageUrl,
+                    request_id: request.id
+                };
+
+                const decision = await lp.waitForDecision(request.id, {
+                    originalPayload: args,
                     timeoutMs: options.timeout
                 });
 
@@ -73,13 +83,19 @@ export function createLetsPingTool<T extends z.ZodType>(options: AdapterOptions<
 
                 return JSON.stringify(options.handler ? { letsping_context, execution_output } : letsping_context);
 
-            } catch (error: any) {
-                return JSON.stringify({
-                    status: "ERROR",
-                    error: error.message || "Unknown error during LetsPing approval process",
-                    suggestion: "Inform the user that the request for approval failed or timed out."
-                });
-            }
+        } catch (error: any) {
+            return JSON.stringify({
+                status: "ERROR",
+                error: error.message || "Unknown error during LetsPing approval process",
+                suggestion: "Inform the user that the request for approval failed or timed out."
+            });
         }
+    };
+
+    return new DynamicStructuredTool({
+        name: options.name,
+        description: `${options.description} [SYSTEM NOTE: This tool pauses execution until a human approves the request via LetsPing. Do not expect an immediate result.]`,
+        schema: options.schema as any,
+        func: func as any
     });
 }

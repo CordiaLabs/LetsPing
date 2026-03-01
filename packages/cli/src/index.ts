@@ -43,7 +43,60 @@ program
     runDevTunnel();
   });
 
+program
+  .command('demo')
+  .description('Send one approval request and open the dashboard (first-run demo)')
+  .option('-b, --base-url <url>', 'API base URL (default: https://letsping.co/api)')
+  .action(async (opts: { baseUrl?: string }) => {
+    await runDemo(opts.baseUrl);
+  });
+
 program.parse(process.argv);
+
+const DASHBOARD_URL = process.env.LETSPING_DASHBOARD_URL || "https://letsping.co";
+
+async function runDemo(baseUrl?: string) {
+  const apiKey = process.env.LETSPING_API_KEY;
+  if (!apiKey || apiKey.trim() === "") {
+    console.log(chalk.yellow("\n  No API key found.\n"));
+    console.log(chalk.white("  1. Get your key: " + chalk.cyan(DASHBOARD_URL + "/login")));
+    console.log(chalk.white("  2. Create a workspace, then go to Settings → Developers → Create API key"));
+    console.log(chalk.white("  3. Run: " + chalk.cyan("export LETSPING_API_KEY=lp_...") + " (or set in .env)"));
+    console.log(chalk.white("  4. Run " + chalk.cyan("letsping demo") + " again.\n"));
+    process.exit(1);
+  }
+
+  console.log(chalk.hex("#8B5CF6").bold("\n◆ LetsPing first-run demo\n"));
+  console.log(chalk.dim("  Sending one approval request. You’ll see it in the dashboard.\n"));
+
+  try {
+    const { LetsPing } = await import("@letsping/sdk");
+    const lp = new LetsPing(apiKey, { baseUrl: baseUrl ? baseUrl.replace(/\/?$/, "") + "/api" : undefined });
+    const decision = await lp.ask({
+      service: "demo-agent",
+      action: "transfer_funds",
+      payload: { amount: 100, reason: "First-run demo from letsping demo" },
+      priority: "high",
+      timeoutMs: 120_000,
+    });
+
+    if (decision.status === "APPROVED") {
+      console.log(chalk.green("  ✓ Approved. Execution would resume with the payload.\n"));
+    } else {
+      console.log(chalk.yellow("  → " + (decision.status || "REJECTED") + ". Request was not approved.\n"));
+    }
+  } catch (err: any) {
+    if (err.message?.includes("402")) {
+      console.log(chalk.yellow("  Quota or billing limit (402). Upgrade or add payment in the dashboard.\n"));
+    } else {
+      console.error(chalk.red("  Error:"), err.message || err);
+    }
+    process.exit(1);
+  }
+
+  console.log(chalk.white("  Dashboard: " + chalk.cyan(DASHBOARD_URL + "/dashboard")));
+  console.log("");
+}
 
 function runDevTunnel() {
   const PROJECT_ID = process.env.LETSPING_PROJECT_ID;

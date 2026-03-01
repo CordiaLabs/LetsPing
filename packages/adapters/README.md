@@ -2,6 +2,14 @@
 
 Drop-in Human-in-the-Loop tool adapters for popular AI agent frameworks.
 
+**Pick your framework** — one canonical example per stack. Each runs with **only `LETSPING_API_KEY`**; clone, set key, run.
+
+| Stack | Example (clone-and-run) |
+|-------|-------------------------|
+| **LangGraph + Next.js** | [examples/langgraph-nextjs](https://github.com/CordiaLabs/LetsPing/tree/main/examples/langgraph-nextjs) |
+| **Vercel AI SDK** | [examples/vercel-ai-tools](https://github.com/CordiaLabs/LetsPing/tree/main/examples/vercel-ai-tools) |
+| **Python + FastAPI** | [examples/python-fastapi](https://github.com/CordiaLabs/LetsPing/tree/main/examples/python-fastapi) |
+
 This package provides strictly-typed wrappers around `@letsping/sdk` that integrate seamlessly with:
 
 - Vercel AI SDK (as `CoreTool`)
@@ -66,6 +74,9 @@ const agent = new AgentExecutor({
 });
 ```
 
+**Tool progress (LangGraph streaming)**  
+When using LangGraph with stream mode `"tools"`, the adapter yields a progress event as soon as the request is queued: `status: "intercepted_by_firewall"`, `reason`, `triage_url`, and `request_id`. Your client can read this from `stream.toolProgress` (e.g. `useStream` in React) to show "Waiting for admin approval" and a link to the LetsPing triage dashboard without blocking the stream.
+
 ## Peer Dependencies
 
 Make sure the following compatible versions are installed in your project:
@@ -85,3 +96,5 @@ Make sure the following compatible versions are installed in your project:
 - **Rehydration**: These adapters handle the *execution pause* natively within standard framework constructs, but they do *not* automatically rehydrate the framework once the process exits. You must handle webhook delivery and instantiate your framework resumption logic manually (see the SDK README webhook examples for Next.js / FastAPI).
 
 For full LetsPing API documentation, see: https://letsping.co/docs
+
+**License:** MIT. Source: [CordiaLabs/LetsPing](https://github.com/CordiaLabs/LetsPing) (packages/adapters).

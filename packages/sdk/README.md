@@ -4,14 +4,17 @@ The official Node.js/TypeScript SDK for [LetsPing](https://letsping.co).
 
 LetsPing is a behavioral firewall and Human-in-the-Loop (HITL) infrastructure layer for Agentic AI. It provides mathematically secure state-parking (Cryo-Sleep) and execution governance for autonomous agents built on frameworks like LangGraph, Vercel AI SDK, and custom architectures.
 
+**What you get with this SDK:** One client that connects your agent to the full LetsPing stack: a hosted dashboard for triage and approvals, a Markov-based behavioral firewall that learns your graph and intercepts anomalies, Cryo-Sleep state parking so long-running flows survive serverless limits, and audit trails for compliance. Use LangGraph (or any runtime) for the graph; use LetsPing for the human layer and guardrails.
+
 ### Features
 - **The Behavioral Shield:** Silently profiles your agent's execution paths via Markov Chains. Automatically intercepts 0-probability reasoning anomalies (hallucinations/prompt injections).
 - **Cryo-Sleep State Parking:** Pauses execution and securely uploads massive agent states directly to storage using Signed URLs, entirely bypassing serverless timeouts and webhook payload limits.
 - **Smart-Accept Drift Adaptation:** Approval decisions mathematically alter the baseline. Old unused reasoning paths decay automatically via Exponential Moving Average (EMA).
+- **Agent Identity & Escrow Helpers:** Optional HMAC-based helpers (`signAgentCall`, `verifyEscrow`, `chainHandoff`) for cryptographically linking agent calls and handoffs to LetsPing requests.
 
 ## Requirements
-- Node.js 18+
-- TypeScript 5+ (recommended)
+
+- **Compatibility:** Node.js 18+. TypeScript 5+ recommended.
 - (Optional) `@langchain/langgraph` and `@langchain/core` for state persistence
 
 ## Installation
@@ -21,6 +24,27 @@ npm install @letsping/sdk
 ```
 
 ## Usage
+
+### Minimal drop-in example
+
+The fastest way to see your first approval in the dashboard:
+
+```ts
+import { LetsPing } from "@letsping/sdk";
+
+const apiKey = process.env.LETSPING_API_KEY;
+if (!apiKey) throw new Error("Missing LETSPING_API_KEY env var.");
+
+const lp = new LetsPing(apiKey);
+
+const decision = await lp.ask({
+  service: "billing-agent",
+  action: "refund_user",
+  payload: { user_id: "u_123", amount: 100 },
+});
+```
+
+Every example in this README follows the same pattern: **either pass the key explicitly or rely on `LETSPING_API_KEY` via env**.
 
 ### Blocking Request (`ask`)
 
@@ -34,7 +58,7 @@ const lp = new LetsPing(process.env.LETSPING_API_KEY!);
 async function processRefund(userId: string, amount: number) {
   try {
     const decision = await lp.ask({
-      service: "billing-service",
+      service: "billing-agent",
       action: "refund_user",
       priority: "high",
       payload: { userId, amount },
@@ -199,7 +223,7 @@ export async function POST(req: NextRequest) {
 }
 ```
 
-In your agent runner, you simply include `thread_id` and `state_snapshot` when you first call LetsPing from inside a LangGraph node. The checkpointer and webhook then keep the thread resumable across restarts.
+In your agent runner, you simply include `thread_id` and `state_snapshot` when you first call LetsPing from inside a LangGraph node. The checkpointer and webhook then keep the thread resumable across restarts. If the human edited the payload in the dashboard, `data.patched_payload` (or `data.payload`) is available in the webhook payload — use your framework’s normal state-update or channel overwrite semantics to inject the approved payload into the resumed graph so the run sees the correct values.
 
 ## API Reference
 
@@ -219,7 +243,7 @@ Blocks until resolved (approve / reject / timeout).
 | `payload`    | `Record<string, any>`           | Context passed to human operator (and returned in Decision)                 |
 | `priority`   | `"low" \| "medium" \| "high" \| "critical"` | Routing priority in dashboard                                               |
 | `schema`     | `object`                        | JSON Schema (draft 07) — generates editable form in dashboard               |
-| `timeoutMs`  | `number`                        | Max wait time (default: 86_400_000 ms = 24 hours)                           |
+| `timeoutMs`  | `number`                        | Max wait time in **milliseconds** (default: 86_400_000 ms = 24 hours)      |
 
 ### `lp.defer(options): Promise<{ id: string }>`
 
@@ -229,18 +253,39 @@ Fire-and-forget: queues request and returns request ID immediately. Same options
 
 ```typescript
 interface Decision {
-  status: "APPROVED" | "REJECTED";
+  status: "APPROVED" | "REJECTED" | "APPROVED_WITH_MODIFICATIONS";
   payload: Record<string, any>;          // Original payload sent by agent
   patched_payload?: Record<string, any>; // Human-edited values (if modified)
-  metadata: {
+  diff_summary?: any;                    // Field-level diff between payload and patched_payload
+  metadata?: {
     actor_id: string;                    // ID/email of the approving/rejecting human
     resolved_at: string;                 // ISO 8601 timestamp
+    method?: string;                     // Optional resolution method (e.g. "dashboard")
   };
 }
 ```
 
-For full documentation, request schema examples, error codes, and dashboard integration see:  
+**Structured errors:** All API and network errors are thrown as `LetsPingError` with optional `status`, `code` (e.g. `LETSPING_402_QUOTA`, `LETSPING_429_RATE_LIMIT`, `LETSPING_TIMEOUT`), and `documentationUrl` so you can branch or log and link users to the right doc. See https://letsping.co/docs#errors.
+
+**Optional retries:** Pass `retry: { maxAttempts: 3, initialDelayMs: 1000, maxDelayMs: 10000 }` in the constructor to enable exponential backoff for ingest and status calls (429 and 5xx are retried).
+
+**Status helper:** Use `lp.getRequestStatus(id)` after `defer()` to poll for request status without calling the raw HTTP API. See https://letsping.co/docs#requests.
+
+For full documentation, request schema examples, and dashboard integration see:  
 https://letsping.co/docs#sdk
+
+### Agent-to-Agent Escrow (optional)
+
+For multi-agent systems that want cryptographic guarantees around handoffs, the SDK exposes:
+
+- `createAgentWorkspace(options?)` to do request-token → redeem → register in one call. Returns `{ project_id, api_key, ingest_url, agent_id, agent_secret }` so the agent gets its own workspace without a human. Rate limits apply; see [agent quickstart](https://letsping.co/agent/quickstart).
+- `ingestWithAgentSignature(agentId, agentSecret, payload, options)` to POST a signed ingest (no hand-rolled HMAC or curl). Options: `{ projectId, ingestUrl, apiKey }`.
+- `signAgentCall(agentId, secret, call)` to attach `agent_id` and `agent_signature` to `/ingest` calls.
+- `signIngestBody(agentId, secret, body)` to take an existing ingest body (`{ project_id, service, action, payload }`) and return it with `agent_id` and `agent_signature` attached.
+- `verifyEscrow(event, secret)` to validate LetsPing escrow webhooks.
+- `chainHandoff(previous, nextData, secret)` to safely construct downstream handoffs tied to the original request id.
+
+See the one-page spec at `/docs/agent-escrow-spec` in the LetsPing web app for the exact wire format and interoperability rules.
 
 Deploy agents with confidence.
 
@@ -307,3 +352,9 @@ const lp = new LetsPing(process.env.LETSPING_API_KEY!, {
 ```
 
 All `ask` / `defer` calls made through that client will flow through your local tunnel into the LetsPing dashboard.
+
+---
+
+**Compatibility:** Node 18+, TypeScript 5+. Optional: `@langchain/langgraph`, `@langchain/core` for LangGraph integration.
+
+**License:** MIT. Source: [CordiaLabs/LetsPing](https://github.com/CordiaLabs/LetsPing) (packages/sdk).

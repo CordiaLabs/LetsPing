@@ -1,6 +1,6 @@
 {
   "name": "@letsping/adapters",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "LetsPing Framework Adapters for Vercel AI SDK and LangChain",
   "files": [
     "dist"
@@ -22,13 +22,26 @@
     "dev": "tsup --watch",
     "clean": "rm -rf dist .turbo"
   },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "homepage": "https://letsping.co",
+  "license": "MIT",
+  "keywords": [
+    "letsping",
+    "agent",
+    "hitl",
+    "vercel-ai",
+    "langchain",
+    "adapters"
+  ],
   "peerDependencies": {
     "@langchain/core": ">=0.1.0",
     "ai": ">=2.0.0",
     "zod": ">=3.0.0"
   },
   "dependencies": {
-    "@letsping/sdk": "0.2.0"
+    "@letsping/sdk": "0.3.0"
   },
   "devDependencies": {
     "tsup": "^8.0.0",
@@ -40,5 +53,10 @@
   },
   "publishConfig": {
     "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/CordiaLabs/LetsPing.git",
+    "directory": "packages/adapters"
   }
 }

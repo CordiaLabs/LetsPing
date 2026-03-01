@@ -30,7 +30,7 @@ def _encrypt_payload(key_b64: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     """Encrypt a payload dict with AES-256-GCM. Returns an EncEnvelope dict."""
     if not _CRYPTO_AVAILABLE:
         raise ImportError(
-            "Payload encryption requires the 'cryptography' package. "
+            "Payload encryption is optional and requires the 'cryptography' package. "
             "Install it with: pip install cryptography"
         )
     key = base64.b64decode(key_b64)
@@ -97,13 +97,143 @@ def compute_diff(original: Any, patched: Any) -> Any:
     return changes if has_changes else None
 
 
+def _sign_agent_call(agent_id: str, secret: str, call: Dict[str, Any]) -> Dict[str, str]:
+    """HMAC-SHA256 over canonical JSON of project_id, service, action, payload. Returns dict with agent_id and agent_signature (hex)."""
+    canonical = json.dumps(
+        {"project_id": call["project_id"], "service": call["service"], "action": call["action"], "payload": call.get("payload") or {}},
+        separators=(",", ":"),
+    )
+    sig = hmac.new(secret.encode("utf-8"), canonical.encode("utf-8"), hashlib.sha256).hexdigest()
+    return {"agent_id": agent_id, "agent_signature": sig}
+
+
+def _raise_for_response(res: httpx.Response) -> None:
+    if res.is_success:
+        return
+    try:
+        err = res.json()
+        msg = err.get("error", err.get("message", res.text)) or f"HTTP {res.status_code}"
+        code = err.get("code")
+    except Exception:
+        msg = res.text or f"HTTP {res.status_code}"
+        code = None
+    c = code or _status_to_code(res.status_code)
+    raise LetsPingError(msg, res.status_code, c, _code_to_doc_url(c))
+
+
+def create_agent_workspace(base_url: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Request a signup token, redeem it to create a workspace, and register one agent.
+    Returns credentials (project_id, api_key, ingest_url, agent_id, agent_secret, etc.) so the agent can call
+    ingest_with_agent_signature. Rate limits apply. Raises LetsPingError on 4xx/5xx or if self-serve signup is disabled.
+    """
+    base = (base_url or os.getenv("LETSPING_BASE_URL", "https://letsping.co")).rstrip("/")
+    with httpx.Client(timeout=30.0) as client:
+        token_res = client.post(f"{base}/api/agent-signup/request-token", json={})
+        _raise_for_response(token_res)
+        token_data = token_res.json()
+        token = token_data.get("token")
+        if not token:
+            raise LetsPingError("LetsPing Error: No token in request-token response")
+
+        redeem_res = client.post(f"{base}/api/agent-signup", json={"token": token})
+        _raise_for_response(redeem_res)
+        redeem = redeem_res.json()
+        api_key = redeem.get("api_key")
+        agents_register_url = redeem.get("agents_register_url")
+        if not api_key or not agents_register_url:
+            raise LetsPingError("LetsPing Error: Invalid redeem response (missing api_key or agents_register_url)")
+
+        register_res = client.post(
+            agents_register_url,
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json={},
+        )
+        _raise_for_response(register_res)
+        reg = register_res.json()
+        agent_id = reg.get("agent_id")
+        agent_secret = reg.get("agent_secret")
+        if not agent_id or not agent_secret:
+            raise LetsPingError("LetsPing Error: Invalid register response (missing agent_id or agent_secret)")
+
+        return {
+            "project_id": redeem["project_id"],
+            "api_key": api_key,
+            "ingest_url": redeem.get("ingest_url", f"{base}/api/ingest"),
+            "agents_register_url": agents_register_url,
+            "agent_id": agent_id,
+            "agent_secret": agent_secret,
+            **({k: redeem[k] for k in ("org_id", "docs_url") if k in redeem}),
+        }
+
+
+def ingest_with_agent_signature(
+    agent_id: str,
+    agent_secret: str,
+    service: str,
+    action: str,
+    payload: Dict[str, Any],
+    project_id: str,
+    ingest_url: str,
+    api_key: str,
+) -> Dict[str, Any]:
+    """
+    Build a signed ingest body and POST it to the ingest URL with Bearer api_key. Returns the JSON response.
+    Use this so the agent quickstart does not require hand-rolled HMAC or curl.
+    """
+    call = {"project_id": project_id, "service": service, "action": action, "payload": payload or {}}
+    signed = _sign_agent_call(agent_id, agent_secret, call)
+    body = {**call, **signed}
+    with httpx.Client(timeout=30.0) as client:
+        res = client.post(
+            ingest_url,
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json=body,
+        )
+        _raise_for_response(res)
+        return res.json()
+
+
 logger = logging.getLogger("letsping")
 
+LETSPING_DOCS_BASE = "https://letsping.co/docs"
 DEFAULT_BASE_URL = "https://www.letsping.co/api/"
+
+
+def _status_to_code(status: int) -> str:
+    if status == 401:
+        return "LETSPING_401_AUTH"
+    if status == 402:
+        return "LETSPING_402_QUOTA"
+    if status == 403:
+        return "LETSPING_403_FORBIDDEN"
+    if status == 404:
+        return "LETSPING_404_NOT_FOUND"
+    if status == 429:
+        return "LETSPING_429_RATE_LIMIT"
+    if status == 408:
+        return "LETSPING_TIMEOUT"
+    if status >= 500:
+        return "LETSPING_NETWORK"
+    return f"LETSPING_{status}"
+
+
+def _code_to_doc_url(code: str) -> str:
+    anchors = {
+        "LETSPING_401_AUTH": "#auth",
+        "LETSPING_402_QUOTA": "#billing",
+        "LETSPING_403_FORBIDDEN": "#auth",
+        "LETSPING_404_NOT_FOUND": "#requests",
+        "LETSPING_429_RATE_LIMIT": "#rate-limits",
+        "LETSPING_TIMEOUT": "#timeouts",
+        "LETSPING_NETWORK": "#errors",
+        "LETSPING_WEBHOOK_INVALID": "#webhooks",
+    }
+    return f"{LETSPING_DOCS_BASE}{anchors.get(code, '')}"
 try:
     VERSION = _pkg_version("letsping")
 except PackageNotFoundError:
-    VERSION = "0.2.0"
+    VERSION = "0.2.1"
 
 __all__ = [
     "LetsPing",
@@ -113,7 +243,10 @@ __all__ = [
     "TimeoutError",
     "Decision",
     "Priority",
-    "Status"
+    "Status",
+    "LETSPING_DOCS_BASE",
+    "create_agent_workspace",
+    "ingest_with_agent_signature",
 ]
 
 Status = Literal["APPROVED", "REJECTED", "PENDING", "APPROVED_WITH_MODIFICATIONS"]
@@ -127,8 +260,19 @@ class Decision(TypedDict):
     metadata: Dict[str, Any]
 
 class LetsPingError(Exception):
-    """Base class for all LetsPing SDK errors."""
-    pass
+    """Base class for all LetsPing SDK errors. Includes optional code and documentation_url for programmatic handling."""
+
+    def __init__(
+        self,
+        message: str,
+        status: Optional[int] = None,
+        code: Optional[str] = None,
+        documentation_url: Optional[str] = None,
+    ):
+        super().__init__(message)
+        self.status = status
+        self.code = code or (status and _status_to_code(status))
+        self.documentation_url = documentation_url or (self.code and _code_to_doc_url(self.code))
 
 class AuthenticationError(LetsPingError):
     pass
@@ -258,6 +402,8 @@ class LetsPing:
         Raises:
             ApprovalRejectedError: If the human rejects the request.
             TimeoutError: If no decision is made within the timeout period.
+        See also:
+            https://letsping.co/docs#ask
         """
         if _OTEL_AVAILABLE and _tracer:
             with _tracer.start_as_current_span(
@@ -295,6 +441,8 @@ class LetsPing:
         
         Returns:
             str: The unique Request ID.
+        See also:
+            https://letsping.co/docs#defer
         """
         metadata = {"sdk": "python"}
         if role:
@@ -351,7 +499,7 @@ class LetsPing:
             return req_id
 
     def wait(self, request_id: str, timeout: int = 86400) -> Decision:
-        """Resumes waiting for an existing request ID."""
+        """Resumes waiting for an existing request ID. Polls until APPROVED/REJECTED or timeout. See also: https://letsping.co/docs#requests"""
         start_time = time.time()
         attempt = 0
         
@@ -368,7 +516,7 @@ class LetsPing:
                         return self._parse_decision(decision)
                 
                 elif resp.status_code not in (404, 429, 500, 502, 503, 504):
-                   self._handle_response(resp)
+                    self._handle_response(resp)
                    
             except (httpx.RequestError, json.JSONDecodeError) as e:
                 logger.warning(f"LetsPing polling transient error: {e}")
@@ -377,6 +525,18 @@ class LetsPing:
             time.sleep(sleep_time + random.uniform(0, 0.2))
 
         raise TimeoutError(f"Wait timed out after {timeout}s for request {request_id}")
+
+    def get_request_status(self, request_id: str) -> Dict[str, Any]:
+        """
+        Fetch the current status of a request by id. Use after defer() to poll until status is APPROVED or REJECTED
+        without calling the raw HTTP API.
+        Returns a dict with keys: id, status (PENDING | APPROVED | REJECTED), payload, patched_payload, resolved_at, actor_id.
+        See also: https://letsping.co/docs#requests
+        """
+        resp = self._client.get(f"status/{request_id}")
+        if not resp.is_success:
+            self._handle_response(resp)
+        return resp.json()
 
     async def aask(
         self, 
@@ -541,26 +701,27 @@ class LetsPing:
         signature_header: str,
         webhook_secret: str
     ) -> Dict[str, Any]:
-        """Validates and hydrates a LetsPing webhook payload synchronously."""
+        """Validates and hydrates a LetsPing webhook payload synchronously. See also: https://letsping.co/docs#webhooks"""
+        doc_url = f"{LETSPING_DOCS_BASE}#webhooks"
         sig_parts = dict(p.split('=', 1) for p in signature_header.split(',') if '=' in p)
 
         ts_raw = sig_parts.get("t")
         sig_raw = sig_parts.get("v1")
         if not ts_raw or not sig_raw:
-            raise LetsPingError("LetsPing Error: Missing webhook signature fields")
+            raise LetsPingError("LetsPing Error: Missing webhook signature fields", 401, "LETSPING_WEBHOOK_INVALID", doc_url)
 
         try:
             ts = int(ts_raw)
         except ValueError:
-            raise LetsPingError("LetsPing Error: Invalid webhook timestamp")
+            raise LetsPingError("LetsPing Error: Invalid webhook timestamp", 401, "LETSPING_WEBHOOK_INVALID", doc_url)
 
         skew_ms = abs(int(time.time() * 1000) - ts)
         if skew_ms > 5 * 60 * 1000:
-            raise LetsPingError("LetsPing Error: Webhook replay window exceeded")
+            raise LetsPingError("LetsPing Error: Webhook replay window exceeded", 401, "LETSPING_WEBHOOK_INVALID", doc_url)
 
         mac = hmac.new(webhook_secret.encode('utf-8'), payload_str.encode('utf-8'), hashlib.sha256).hexdigest()
         if sig_raw != mac:
-            raise LetsPingError("LetsPing Error: Invalid webhook signature")
+            raise LetsPingError("LetsPing Error: Invalid webhook signature", 401, "LETSPING_WEBHOOK_INVALID", doc_url)
             
         payload = json.loads(payload_str)
         data = payload.get("data", {})
@@ -604,26 +765,27 @@ class LetsPing:
         signature_header: str,
         webhook_secret: str
     ) -> Dict[str, Any]:
-        """Validates and hydrates a LetsPing webhook payload asynchronously."""
+        """Validates and hydrates a LetsPing webhook payload asynchronously. See also: https://letsping.co/docs#webhooks"""
+        doc_url = f"{LETSPING_DOCS_BASE}#webhooks"
         sig_parts = dict(p.split('=', 1) for p in signature_header.split(',') if '=' in p)
 
         ts_raw = sig_parts.get("t")
         sig_raw = sig_parts.get("v1")
         if not ts_raw or not sig_raw:
-            raise LetsPingError("LetsPing Error: Missing webhook signature fields")
+            raise LetsPingError("LetsPing Error: Missing webhook signature fields", 401, "LETSPING_WEBHOOK_INVALID", doc_url)
 
         try:
             ts = int(ts_raw)
         except ValueError:
-            raise LetsPingError("LetsPing Error: Invalid webhook timestamp")
+            raise LetsPingError("LetsPing Error: Invalid webhook timestamp", 401, "LETSPING_WEBHOOK_INVALID", doc_url)
 
         skew_ms = abs(int(time.time() * 1000) - ts)
         if skew_ms > 5 * 60 * 1000:
-            raise LetsPingError("LetsPing Error: Webhook replay window exceeded")
+            raise LetsPingError("LetsPing Error: Webhook replay window exceeded", 401, "LETSPING_WEBHOOK_INVALID", doc_url)
 
         mac = hmac.new(webhook_secret.encode('utf-8'), payload_str.encode('utf-8'), hashlib.sha256).hexdigest()
         if sig_raw != mac:
-            raise LetsPingError("LetsPing Error: Invalid webhook signature")
+            raise LetsPingError("LetsPing Error: Invalid webhook signature", 401, "LETSPING_WEBHOOK_INVALID", doc_url)
             
         payload = json.loads(payload_str)
         data = payload.get("data", {})
@@ -664,18 +826,17 @@ class LetsPing:
     def _handle_response(self, response: httpx.Response) -> Dict[str, Any]:
         if response.status_code == 401 or response.status_code == 403:
             raise AuthenticationError("Invalid API Key or unauthorized access.")
-        
-        try:
-            response.raise_for_status()
+        if response.is_success:
             return response.json()
-        except httpx.HTTPStatusError as e:
-            error_msg = response.text
-            try:
-                error_data = response.json()
-                error_msg = error_data.get("message", response.text)
-            except Exception:
-                pass
-            raise LetsPingError(f"API Error {response.status_code}: {error_msg}") from e
+        try:
+            error_data = response.json()
+            error_msg = error_data.get("message", error_data.get("error", response.text))
+            code = error_data.get("code")
+        except Exception:
+            error_msg = response.text or f"API Error {response.status_code}"
+            code = None
+        c = code or _status_to_code(response.status_code)
+        raise LetsPingError(error_msg, response.status_code, c, _code_to_doc_url(c))
 
     def _parse_decision(self, data: Dict[str, Any]) -> Decision:
         status = data.get("status")

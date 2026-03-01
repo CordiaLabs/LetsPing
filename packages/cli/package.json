@@ -1,36 +1,43 @@
 {
-    "name": "letsping",
-    "version": "0.2.1",
-    "description": "Localhost HTTP Tunnel for LetsPing Webhooks and Ingestion",
-    "bin": {
-        "letsping": "./dist/index.js"
-    },
-    "files": [
-        "dist"
-    ],
-    "scripts": {
-        "build": "tsup",
-        "dev": "tsup --watch",
-        "start": "node dist/index.js",
-        "typecheck": "tsc --noEmit"
-    },
-    "keywords": [
-        "letsping",
-        "cli",
-        "agent",
-        "hitl"
-    ],
-    "author": "Cordia Labs",
-    "license": "MIT",
-    "dependencies": {
-        "@supabase/supabase-js": "^2.39.0",
-        "chalk": "^4.1.2",
-        "commander": "^11.1.0",
-        "dotenv": "^16.3.1"
-    },
-    "devDependencies": {
-        "@types/node": "^20.10.0",
-        "tsup": "^8.0.1",
-        "typescript": "^5.3.3"
-    }
+  "name": "letsping",
+  "version": "0.3.0",
+  "description": "Localhost HTTP Tunnel for LetsPing Webhooks and Ingestion",
+  "bin": {
+    "letsping": "./dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "letsping",
+    "cli",
+    "agent",
+    "hitl"
+  ],
+  "author": "Cordia Labs",
+  "dependencies": {
+    "@letsping/sdk": "0.3.0",
+    "@supabase/supabase-js": "^2.39.0",
+    "chalk": "^4.1.2",
+    "commander": "^11.1.0",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "tsup": "^8.0.1",
+    "typescript": "^5.3.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/CordiaLabs/LetsPing.git",
+    "directory": "packages/cli"
+  },
+  "homepage": "https://letsping.co",
+  "license": "MIT"
 }

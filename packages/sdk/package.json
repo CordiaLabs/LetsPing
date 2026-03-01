@@ -1,7 +1,7 @@
 {
   "name": "@letsping/sdk",
-  "version": "0.2.0",
-  "description": "Behavioral Firewall and Cryo-Sleep State Parking for Autonomous Agents",
+  "version": "0.3.0",
+  "description": "Agent trust layer: behavioral firewall, HITL, and Cryo-Sleep state for AI agents. Works with LangGraph, Vercel AI SDK, and custom runners.",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
@@ -22,6 +22,22 @@
     "dev": "tsup --watch",
     "clean": "rm -rf dist .turbo"
   },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "homepage": "https://letsping.co",
+  "license": "MIT",
+  "keywords": [
+    "letsping",
+    "agent",
+    "hitl",
+    "human-in-the-loop",
+    "behavioral-firewall",
+    "langgraph",
+    "vercel-ai",
+    "cryo-sleep",
+    "state-parking"
+  ],
   "peerDependencies": {
     "@langchain/core": ">=0.1.52",
     "@langchain/langgraph": ">=0.0.1",
@@ -48,5 +64,10 @@
   },
   "publishConfig": {
     "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/CordiaLabs/LetsPing.git",
+    "directory": "packages/sdk"
   }
 }

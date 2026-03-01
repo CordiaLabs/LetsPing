@@ -1,6 +1,6 @@
 import { createCipheriv, createDecipheriv, randomBytes, createHmac } from "node:crypto";
 
-let SDK_VERSION = "0.2.0";
+let SDK_VERSION = "0.2.1";
 try {
 
     SDK_VERSION = require("../package.json").version;
@@ -62,11 +62,83 @@ export interface Decision {
     };
 }
 
+/** Status of a request returned by GET /status/:id. Use with defer() + getRequestStatus() for polling without reading the raw HTTP API. */
+export interface RequestStatus {
+    id: string;
+    status: "PENDING" | "APPROVED" | "REJECTED";
+    payload?: any;
+    patched_payload?: any;
+    resolved_at?: string | null;
+    actor_id?: string | null;
+}
+
+/** Base URL for error documentation. Errors may include a link to a specific anchor. */
+export const LETSPING_DOCS_BASE = "https://letsping.co/docs";
+
+/** Known error codes for programmatic handling and doc links. */
+export type LetsPingErrorCode =
+    | "LETSPING_401_AUTH"
+    | "LETSPING_402_QUOTA"
+    | "LETSPING_403_FORBIDDEN"
+    | "LETSPING_404_NOT_FOUND"
+    | "LETSPING_429_RATE_LIMIT"
+    | "LETSPING_TIMEOUT"
+    | "LETSPING_NETWORK"
+    | "LETSPING_WEBHOOK_INVALID"
+    | string;
+
 export class LetsPingError extends Error {
-    constructor(message: string, public status?: number) {
+    /** HTTP status when the error came from the API (e.g. 402, 429). */
+    public readonly status?: number;
+    /** Stable code for handling (e.g. LETSPING_402_QUOTA). Use for branching or logging. */
+    public readonly code?: LetsPingErrorCode;
+    /** Link to the relevant doc section. Present when code is set. */
+    public readonly documentationUrl?: string;
+
+    constructor(
+        message: string,
+        status?: number,
+        code?: LetsPingErrorCode,
+        documentationUrl?: string
+    ) {
         super(message);
         this.name = "LetsPingError";
+        this.status = status;
+        this.code = code ?? (status ? statusToCode(status) : undefined);
+        this.documentationUrl = documentationUrl ?? (this.code ? codeToDocUrl(this.code) : undefined);
     }
+}
+
+function statusToCode(status: number): LetsPingErrorCode {
+    switch (status) {
+        case 401: return "LETSPING_401_AUTH";
+        case 402: return "LETSPING_402_QUOTA";
+        case 403: return "LETSPING_403_FORBIDDEN";
+        case 404: return "LETSPING_404_NOT_FOUND";
+        case 429: return "LETSPING_429_RATE_LIMIT";
+        case 408: return "LETSPING_TIMEOUT";
+        default: return status >= 500 ? "LETSPING_NETWORK" : (`LETSPING_${status}` as LetsPingErrorCode);
+    }
+}
+
+function codeToDocUrl(code: LetsPingErrorCode): string {
+    const anchor: Record<string, string> = {
+        LETSPING_401_AUTH: "#auth",
+        LETSPING_402_QUOTA: "#billing",
+        LETSPING_403_FORBIDDEN: "#auth",
+        LETSPING_404_NOT_FOUND: "#requests",
+        LETSPING_429_RATE_LIMIT: "#rate-limits",
+        LETSPING_TIMEOUT: "#timeouts",
+        LETSPING_NETWORK: "#errors",
+        LETSPING_WEBHOOK_INVALID: "#webhooks",
+    };
+    return `${LETSPING_DOCS_BASE}${anchor[code] ?? ""}`;
+}
+
+function parseApiError(responseStatus: number, body: { message?: string; error?: string; code?: string }): { message: string; code: LetsPingErrorCode; documentationUrl: string } {
+    const message = body?.message ?? body?.error ?? `API Error [${responseStatus}]`;
+    const code = (body?.code as LetsPingErrorCode) ?? statusToCode(responseStatus);
+    return { message, code, documentationUrl: codeToDocUrl(code) };
 }
 
 interface EncEnvelope {
@@ -153,12 +225,283 @@ function computeDiff(original: any, patched: any): any {
     return hasChanges ? changes : null;
 }
 
+export interface EscrowEnvelope {
+    id: string;
+    event: string;
+    data: any;
+    escrow?: {
+        mode: "none" | "handoff" | "finalized";
+        handoff_signature: string | null;
+        upstream_agent_id: string | null;
+        downstream_agent_id: string | null;
+        x402_mandate?: any;
+        ap2_mandate?: any;
+    };
+}
+
+export function verifyEscrow(event: EscrowEnvelope, secret: string): boolean {
+    if (!event.escrow || !event.escrow.handoff_signature) return false;
+    const base = {
+        id: event.id,
+        event: event.event,
+        data: event.data,
+        upstream_agent_id: event.escrow.upstream_agent_id,
+        downstream_agent_id: event.escrow.downstream_agent_id,
+        x402_mandate: event.escrow.x402_mandate ?? null,
+        ap2_mandate: event.escrow.ap2_mandate ?? null,
+    };
+    const expected = createHmac("sha256", secret).update(JSON.stringify(base)).digest("hex");
+    return expected === event.escrow.handoff_signature;
+}
+
+export interface AgentCallPayload {
+    project_id: string;
+    service: string;
+    action: string;
+    payload: any;
+}
+
+export function signAgentCall(agentId: string, secret: string, call: AgentCallPayload): {
+    agent_id: string;
+    agent_signature: string;
+} {
+    const canonical = JSON.stringify({
+        project_id: call.project_id,
+        service: call.service,
+        action: call.action,
+        payload: call.payload,
+    });
+    const signature = createHmac("sha256", secret).update(canonical).digest("hex");
+    return {
+        agent_id: agentId,
+        agent_signature: signature,
+    };
+}
+
+export function signIngestBody(
+    agentId: string,
+    secret: string,
+    body: {
+        project_id: string;
+        service: string;
+        action: string;
+        payload: any;
+    }
+): {
+    project_id: string;
+    service: string;
+    action: string;
+    payload: any;
+    agent_id: string;
+    agent_signature: string;
+} {
+    const { agent_id, agent_signature } = signAgentCall(agentId, secret, {
+        project_id: body.project_id,
+        service: body.service,
+        action: body.action,
+        payload: body.payload,
+    });
+    return {
+        ...body,
+        agent_id,
+        agent_signature,
+    };
+}
+
+/** Credentials returned by createAgentWorkspace. Use api_key for Bearer auth and ingestWithAgentSignature for signed ingest. */
+export interface AgentWorkspaceCredentials {
+    project_id: string;
+    api_key: string;
+    ingest_url: string;
+    agents_register_url: string;
+    agent_id: string;
+    agent_secret: string;
+    org_id?: string;
+    docs_url?: string;
+}
+
+/**
+ * Request a signup token, redeem it to create a workspace, and register one agent. Returns credentials so the agent can call ingestWithAgentSignature.
+ * Rate limits apply (see letsping.co/docs). Throws on 4xx/5xx or if self-serve signup is disabled.
+ * @param options.baseUrl - App root URL (e.g. https://letsping.co). Defaults to LETSPING_BASE_URL or https://letsping.co.
+ */
+export async function createAgentWorkspace(options?: { baseUrl?: string }): Promise<AgentWorkspaceCredentials> {
+    const baseUrl = (options?.baseUrl ?? process.env.LETSPING_BASE_URL ?? "https://letsping.co").replace(/\/+$/, "");
+
+    const tokenRes = await fetch(`${baseUrl}/api/agent-signup/request-token`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+    });
+    if (!tokenRes.ok) {
+        const err = await tokenRes.json().catch(() => ({})) as { error?: string; code?: string };
+        const { message, code, documentationUrl } = parseApiError(tokenRes.status, err);
+        throw new LetsPingError(message, tokenRes.status, code, documentationUrl);
+    }
+    const { token } = (await tokenRes.json()) as { token: string };
+    if (!token) {
+        throw new LetsPingError("LetsPing Error: No token in request-token response");
+    }
+
+    const redeemRes = await fetch(`${baseUrl}/api/agent-signup`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token }),
+    });
+    if (!redeemRes.ok) {
+        const err = await redeemRes.json().catch(() => ({})) as { error?: string; message?: string };
+        const { message, code, documentationUrl } = parseApiError(redeemRes.status, err);
+        throw new LetsPingError(message, redeemRes.status, code, documentationUrl);
+    }
+    const redeem = (await redeemRes.json()) as {
+        project_id: string;
+        api_key: string;
+        ingest_url: string;
+        agents_register_url: string;
+        org_id?: string;
+        docs_url?: string;
+    };
+    if (!redeem.api_key || !redeem.agents_register_url) {
+        throw new LetsPingError("LetsPing Error: Invalid redeem response (missing api_key or agents_register_url)");
+    }
+
+    const registerRes = await fetch(redeem.agents_register_url, {
+        method: "POST",
+        headers: {
+            Authorization: `Bearer ${redeem.api_key}`,
+            "Content-Type": "application/json",
+        },
+        body: "{}",
+    });
+    if (!registerRes.ok) {
+        const err = await registerRes.json().catch(() => ({})) as { error?: string };
+        const { message, code, documentationUrl } = parseApiError(registerRes.status, err);
+        throw new LetsPingError(message, registerRes.status, code, documentationUrl);
+    }
+    const reg = (await registerRes.json()) as { agent_id: string; agent_secret: string };
+    if (!reg.agent_id || !reg.agent_secret) {
+        throw new LetsPingError("LetsPing Error: Invalid register response (missing agent_id or agent_secret)");
+    }
+
+    return {
+        project_id: redeem.project_id,
+        api_key: redeem.api_key,
+        ingest_url: redeem.ingest_url,
+        agents_register_url: redeem.agents_register_url,
+        agent_id: reg.agent_id,
+        agent_secret: reg.agent_secret,
+        org_id: redeem.org_id,
+        docs_url: redeem.docs_url,
+    };
+}
+
+/** Options for ingestWithAgentSignature. */
+export interface IngestWithAgentSignatureOptions {
+    projectId: string;
+    ingestUrl: string;
+    apiKey: string;
+}
+
+/** Ingest payload: service, action, and payload. */
+export interface IngestPayload {
+    service: string;
+    action: string;
+    payload: Record<string, any>;
+}
+
+/**
+ * Build a signed ingest body and POST it to the ingest URL with Bearer apiKey. Returns the JSON response; throws on non-2xx.
+ * Use this so the agent quickstart does not require hand-rolled HMAC or curl. See also: signIngestBody.
+ */
+export async function ingestWithAgentSignature(
+    agentId: string,
+    agentSecret: string,
+    payload: IngestPayload,
+    options: IngestWithAgentSignatureOptions
+): Promise<Record<string, any>> {
+    const body = signIngestBody(agentId, agentSecret, {
+        project_id: options.projectId,
+        service: payload.service,
+        action: payload.action,
+        payload: payload.payload ?? {},
+    });
+    const res = await fetch(options.ingestUrl, {
+        method: "POST",
+        headers: {
+            Authorization: `Bearer ${options.apiKey}`,
+            "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+    });
+    const data = (await res.json().catch(() => ({}))) as Record<string, any>;
+    if (!res.ok) {
+        const { message, code, documentationUrl } = parseApiError(res.status, data as { error?: string });
+        throw new LetsPingError(message, res.status, code, documentationUrl);
+    }
+    return data;
+}
+
+export function verifyAgentSignature(
+    agentId: string,
+    secret: string,
+    call: AgentCallPayload,
+    signature: string
+): boolean {
+    const { agent_signature } = signAgentCall(agentId, secret, call);
+    return agent_signature === signature;
+}
+
+export function chainHandoff(previous: EscrowEnvelope, nextData: {
+    service: string;
+    action: string;
+    payload: any;
+    upstream_agent_id: string;
+    downstream_agent_id: string;
+}, secret: string): {
+    payload: any;
+    escrow: {
+        mode: "handoff";
+        upstream_agent_id: string;
+        downstream_agent_id: string;
+        handoff_signature: string;
+    };
+} {
+    const base = {
+        id: previous.id,
+        event: previous.event,
+        data: nextData.payload,
+        upstream_agent_id: nextData.upstream_agent_id,
+        downstream_agent_id: nextData.downstream_agent_id,
+    };
+    const handoff_signature = createHmac("sha256", secret).update(JSON.stringify(base)).digest("hex");
+    return {
+        payload: nextData.payload,
+        escrow: {
+            mode: "handoff",
+            upstream_agent_id: nextData.upstream_agent_id,
+            downstream_agent_id: nextData.downstream_agent_id,
+            handoff_signature,
+        },
+    };
+}
+
+/** Optional retry config for ingest and status calls. Disabled when maxAttempts is 1 or omitted. */
+export interface RetryOptions {
+    /** Max attempts per request (default 1 = no retry). Try 3 for transient resilience. */
+    maxAttempts?: number;
+    /** Initial delay in ms before first retry (default 1000). */
+    initialDelayMs?: number;
+    /** Cap on delay between retries in ms (default 10000). */
+    maxDelayMs?: number;
+}
+
 export class LetsPing {
     private readonly apiKey: string;
     private readonly baseUrl: string;
     private readonly encryptionKey: string | null;
+    private readonly retry: Required<RetryOptions>;
 
-    constructor(apiKey?: string, options?: { baseUrl?: string; encryptionKey?: string }) {
+    constructor(apiKey?: string, options?: { baseUrl?: string; encryptionKey?: string; retry?: RetryOptions }) {
         const key = apiKey || process.env.LETSPING_API_KEY;
         if (!key) throw new Error("LetsPing: API Key is required. Pass it to the constructor or set LETSPING_API_KEY env var.");
 
@@ -167,6 +510,12 @@ export class LetsPing {
         this.encryptionKey = options?.encryptionKey
             ?? process.env.LETSPING_ENCRYPTION_KEY
             ?? null;
+        const r = options?.retry ?? {};
+        this.retry = {
+            maxAttempts: r.maxAttempts ?? 1,
+            initialDelayMs: r.initialDelayMs ?? 1000,
+            maxDelayMs: r.maxDelayMs ?? 10000,
+        };
     }
 
     private _encrypt(payload: Record<string, any>): Record<string, any> {
@@ -212,6 +561,13 @@ export class LetsPing {
         };
     }
 
+    /**
+     * Send a request and block until a human approves or rejects it (or timeout). Use for HITL steps in your agent.
+     * @param options - service, action, payload; optional priority, schema, state_snapshot, timeoutMs, role
+     * @returns Decision with status APPROVED | REJECTED | APPROVED_WITH_MODIFICATIONS and payload (or patched_payload)
+     * @throws LetsPingError with code/documentationUrl on API or network errors, or LETSPING_TIMEOUT if no decision in time
+     * @see https://letsping.co/docs#ask
+     */
     async ask(options: RequestOptions): Promise<Decision> {
         if (options.schema && (options.schema as any)._def) {
             throw new LetsPingError("LetsPing Error: Raw Zod schema detected. You must convert it to JSON Schema (e.g. using 'zod-to-json-schema') before passing it to the SDK.");
@@ -324,8 +680,13 @@ export class LetsPing {
                 delay = Math.min(delay * 1.5, maxDelay);
             }
 
-            throw new LetsPingError(`Request ${id} timed out waiting for approval.`);
-        } catch (error: any) {
+        throw new LetsPingError(
+            `Request ${id} timed out waiting for approval.`,
+            undefined,
+            "LETSPING_TIMEOUT",
+            `${LETSPING_DOCS_BASE}#timeouts`
+        );
+    } catch (error: any) {
             if (span) {
                 span.recordException(error);
                 span.setStatus({ code: otel.SpanStatusCode.ERROR });
@@ -335,6 +696,24 @@ export class LetsPing {
         }
     }
 
+    /**
+     * Fetch the current status of a request by id. Use after defer() to poll until status is APPROVED or REJECTED without calling the raw HTTP API.
+     * @param id - Request id returned from defer()
+     * @returns RequestStatus with status PENDING | APPROVED | REJECTED, payload, resolved_at, actor_id
+     * @see https://letsping.co/docs#requests
+     */
+    async getRequestStatus(id: string): Promise<RequestStatus> {
+        const raw = await this.request<RequestStatus>("GET", `/status/${id}`);
+        return raw;
+    }
+
+    /**
+     * Send a request and return immediately with the request id. Poll with getRequestStatus(id) or waitForDecision(id) until resolved.
+     * Use for async flows (e.g. webhook rehydration) where you do not want to block in-process.
+     * @param options - service, action, payload; optional priority, schema, state_snapshot, role
+     * @returns { id } - use id with getRequestStatus(id) or waitForDecision(id)
+     * @see https://letsping.co/docs#defer
+     */
     async defer(options: RequestOptions): Promise<{ id: string }> {
         const otel = await getOtel();
         let span: any = null;
@@ -410,30 +789,139 @@ export class LetsPing {
             "User-Agent": `letsping-node/${SDK_VERSION}`,
         };
 
-        try {
-            const response = await fetch(`${this.baseUrl}${path}`, {
-                method,
-                headers,
-                body: body ? JSON.stringify(body) : undefined,
-            });
+        const maxAttempts = Math.max(1, this.retry.maxAttempts);
+        let lastError: LetsPingError | null = null;
 
-            if (!response.ok) {
-                const errorText = await response.text();
-                let message = errorText;
-                try {
-                    const json = JSON.parse(errorText);
-                    if (json.message) message = json.message;
-                } catch { }
-                throw new LetsPingError(`API Error [${response.status}]: ${message}`, response.status);
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                const response = await fetch(`${this.baseUrl}${path}`, {
+                    method,
+                    headers,
+                    body: body ? JSON.stringify(body) : undefined,
+                });
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    let errorBody: { message?: string; error?: string; code?: string } = {};
+                    try {
+                        errorBody = JSON.parse(errorText);
+                    } catch { }
+                    const { message, code, documentationUrl } = parseApiError(response.status, errorBody);
+                    lastError = new LetsPingError(message, response.status, code, documentationUrl);
+                    const retryable = response.status === 429 || response.status >= 500;
+                    if (retryable && attempt < maxAttempts) {
+                        await this._delay(attempt);
+                        continue;
+                    }
+                    throw lastError;
+                }
+
+                return await response.json() as T;
+            } catch (e: any) {
+                if (e instanceof LetsPingError) {
+                    lastError = e;
+                    const retryable = e.status === 429 || (e.status != null && e.status >= 500);
+                    if (retryable && attempt < maxAttempts) {
+                        await this._delay(attempt);
+                        continue;
+                    }
+                    throw e;
+                }
+                lastError = new LetsPingError(
+                    `Network Error: ${e?.message ?? "Unknown"}`,
+                    undefined,
+                    "LETSPING_NETWORK",
+                    `${LETSPING_DOCS_BASE}#errors`
+                );
+                if (attempt < maxAttempts) {
+                    await this._delay(attempt);
+                    continue;
+                }
+                throw lastError;
             }
-
-            return response.json() as Promise<T>;
-        } catch (e: any) {
-            if (e instanceof LetsPingError) throw e;
-            throw new LetsPingError(`Network Error: ${e.message}`);
         }
+
+        throw lastError ?? new LetsPingError("Request failed", undefined, "LETSPING_NETWORK", `${LETSPING_DOCS_BASE}#errors`);
     }
 
+    private _delay(attempt: number): Promise<void> {
+        const delay = Math.min(
+            this.retry.initialDelayMs * Math.pow(1.5, attempt - 1) + Math.random() * 200,
+            this.retry.maxDelayMs
+        );
+        return new Promise(r => setTimeout(r, delay));
+    }
+
+    /**
+     * Poll for a decision on a request created with defer(). Blocks until status is APPROVED/REJECTED or timeout.
+     * @param id - request id from defer()
+     * @param options - originalPayload (fallback if payload not in response), timeoutMs (default 24h)
+     * @returns Decision same shape as ask()
+     * @see https://letsping.co/docs#requests
+     */
+    async waitForDecision(
+        id: string,
+        options?: { originalPayload?: Record<string, any>; timeoutMs?: number }
+    ): Promise<Decision> {
+        const basePayload = options?.originalPayload || {};
+        const timeout = options?.timeoutMs || 24 * 60 * 60 * 1000;
+        const start = Date.now();
+        let delay = 1000;
+        const maxDelay = 10000;
+
+        while (Date.now() - start < timeout) {
+            try {
+                const check = await this.request<any>("GET", `/status/${id}`);
+
+                if (check.status === "APPROVED" || check.status === "REJECTED") {
+                    const decryptedPayload = this._decrypt(check.payload) ?? basePayload;
+                    const decryptedPatched = check.patched_payload ? this._decrypt(check.patched_payload) : undefined;
+
+                    let diff_summary;
+                    let finalStatus: Decision["status"] = check.status;
+                    if (check.status === "APPROVED" && decryptedPatched !== undefined) {
+                        finalStatus = "APPROVED_WITH_MODIFICATIONS";
+                        const diff = computeDiff(decryptedPayload, decryptedPatched);
+                        diff_summary = diff ? { changes: diff } : { changes: "Unknown structure changes" };
+                    }
+
+                    return {
+                        status: finalStatus,
+                        payload: decryptedPayload,
+                        patched_payload: decryptedPatched,
+                        diff_summary,
+                        metadata: {
+                            resolved_at: check.resolved_at,
+                            actor_id: check.actor_id,
+                        }
+                    };
+                }
+            } catch (e: any) {
+                const s = e.status;
+                if (s && s >= 400 && s < 500 && s !== 404 && s !== 429) throw e;
+            }
+
+            const jitter = Math.random() * 200;
+            await new Promise(r => setTimeout(r, delay + jitter));
+            delay = Math.min(delay * 1.5, maxDelay);
+        }
+
+        throw new LetsPingError(
+            `Request ${id} timed out waiting for approval.`,
+            undefined,
+            "LETSPING_TIMEOUT",
+            `${LETSPING_DOCS_BASE}#timeouts`
+        );
+    }
+
+    /**
+     * Build a callable tool (e.g. for LangChain) that runs ask(service, action, payload) and returns a result string.
+     * @param service - LetsPing service name
+     * @param action - action name
+     * @param priority - optional priority (default medium)
+     * @returns Async function(context) => string; context can be JSON string or object
+     * @see https://letsping.co/docs#tool
+     */
     tool(service: string, action: string, priority: Priority = "medium"): (context: string | Record<string, any>) => Promise<string> {
         return async (context: string | Record<string, any>): Promise<string> => {
             let payload: Record<string, any>;
@@ -473,6 +961,15 @@ export class LetsPing {
         };
     }
 
+    /**
+     * Validate and parse an incoming LetsPing webhook body. Verifies signature and optionally fetches/decrypts state_snapshot.
+     * @param payloadStr - raw request body (e.g. await req.text())
+     * @param signatureHeader - x-letsping-signature header
+     * @param webhookSecret - secret from dashboard → Settings → Webhooks
+     * @returns { id, event, data, state_snapshot } for resuming your workflow
+     * @throws LetsPingError with code LETSPING_WEBHOOK_INVALID and documentationUrl on invalid signature or replay
+     * @see https://letsping.co/docs#webhooks
+     */
     async webhookHandler(
         payloadStr: string,
         signatureHeader: string,
@@ -483,25 +980,26 @@ export class LetsPing {
 
         const rawTs = sigMap["t"];
         const rawSig = sigMap["v1"];
+        const docUrl = `${LETSPING_DOCS_BASE}#webhooks`;
         if (!rawTs || !rawSig) {
-            throw new LetsPingError("LetsPing Error: Missing webhook signature fields", 401);
+            throw new LetsPingError("LetsPing Error: Missing webhook signature fields", 401, "LETSPING_WEBHOOK_INVALID", docUrl);
         }
 
         const ts = Number(rawTs);
         if (!Number.isFinite(ts)) {
-            throw new LetsPingError("LetsPing Error: Invalid webhook timestamp", 401);
+            throw new LetsPingError("LetsPing Error: Invalid webhook timestamp", 401, "LETSPING_WEBHOOK_INVALID", docUrl);
         }
 
         const now = Date.now();
         const skewMs = Math.abs(now - ts);
         const maxSkewMs = 5 * 60 * 1000; // 5 minutes
         if (skewMs > maxSkewMs) {
-            throw new LetsPingError("LetsPing Error: Webhook replay window exceeded", 401);
+            throw new LetsPingError("LetsPing Error: Webhook replay window exceeded", 401, "LETSPING_WEBHOOK_INVALID", docUrl);
         }
 
         const expected = createHmac("sha256", webhookSecret).update(payloadStr).digest("hex");
         if (rawSig !== expected) {
-            throw new LetsPingError("LetsPing Error: Invalid webhook signature", 401);
+            throw new LetsPingError("LetsPing Error: Invalid webhook signature", 401, "LETSPING_WEBHOOK_INVALID", docUrl);
         }
 
         const payload = JSON.parse(payloadStr);
