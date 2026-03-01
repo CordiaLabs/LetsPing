@@ -1,0 +1,11 @@
+{
+  "name": "letsping-packages",
+  "private": true,
+  "description": "LetsPing SDK, adapters, MCP, and CLI. See letsping.co for docs.",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build -w @letsping/sdk && npm run build -w @letsping/adapters && npm run build -w @letsping/mcp && npm run build -w letsping"
+  }
+}

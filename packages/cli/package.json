@@ -1,6 +1,6 @@
 {
-  "name": "letsping",
-  "version": "0.3.0",
+  "name": "@letsping/cli",
+  "version": "0.3.1",
   "description": "Localhost HTTP Tunnel for LetsPing Webhooks and Ingestion",
   "bin": {
     "letsping": "./dist/index.js"
@@ -22,7 +22,7 @@
   ],
   "author": "Cordia Labs",
   "dependencies": {
-    "@letsping/sdk": "0.3.0",
+    "@letsping/sdk": "0.3.1",
     "@supabase/supabase-js": "^2.39.0",
     "chalk": "^4.1.2",
     "commander": "^11.1.0",

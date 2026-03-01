@@ -1,6 +1,6 @@
 {
   "name": "@letsping/adapters",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "LetsPing Framework Adapters for Vercel AI SDK and LangChain",
   "files": [
     "dist"
@@ -41,7 +41,7 @@
     "zod": ">=3.0.0"
   },
   "dependencies": {
-    "@letsping/sdk": "0.3.0"
+    "@letsping/sdk": "0.3.1"
   },
   "devDependencies": {
     "tsup": "^8.0.0",

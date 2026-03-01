@@ -1,6 +1,6 @@
 {
   "name": "@letsping/sdk",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Agent trust layer: behavioral firewall, HITL, and Cryo-Sleep state for AI agents. Works with LangGraph, Vercel AI SDK, and custom runners.",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
