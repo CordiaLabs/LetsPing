@@ -31,7 +31,8 @@ export function letsPing<T extends z.ZodType>(options: AdapterOptions<T>) {
                     priority: options.priority || "medium",
                     payload: args,
                     schema: options.schema,
-                    timeoutMs: options.timeout
+                    timeoutMs: options.timeout,
+                    environment: "vercel-ai"
                 });
 
                 if (decision.status === "REJECTED") {

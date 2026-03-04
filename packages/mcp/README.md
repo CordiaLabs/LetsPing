@@ -1,8 +1,6 @@
 # @letsping/mcp
 
-The official **Model Context Protocol (MCP)** server for LetsPing.
-
-This package enables any MCP-compliant agent (Claude Desktop, Cursor, LangChain, etc.) to natively invoke the **Behavioral Shield**, parking the context and "Asking a Human" for approval or help before deploying destructive API changes on your machine.
+MCP server that lets Claude Desktop, Cursor, and other MCP clients route risky tool calls through LetsPing for human approval.
 
 ## Usage
 
@@ -24,6 +22,14 @@ You can run the server directly without installing it, as long as you have your 
   }
 }
 ```
+
+### What this looks like in practice
+
+After you add the server, your agent gets a tool named `ask_human`.
+
+- Call it with `{ service, action, payload }` and a request appears in the LetsPing dashboard.
+- The human can approve, reject, or patch fields.
+- The tool returns JSON text with a `status` field and the `executed_payload` that should run.
 
 ### Tools Provided
 
@@ -69,6 +75,12 @@ Request approval or input from a human operator.
 - Never proceed with the risky action if `status === "REJECTED"`.
 - If `status === "APPROVED_WITH_MODIFICATIONS"`, prefer `executed_payload` over the original; optionally learn from `diff_summary`.
 - If `status === "APPROVED"`, proceed using `executed_payload`.
+
+## When you should not use this
+
+- You already have direct SDK integration and do not use MCP. In that case prefer `@letsping/sdk` or the framework adapters.
+- You need arbitrary tools exposed over MCP. This server only exposes `ask_human` for approvals, not a general tool registry.
+- You want to stream full token logs. The focus here is governing tool calls and payloads, not transcript capture.
 
 ## Development
 

@@ -28,7 +28,8 @@ export function createLetsPingTool<T extends z.ZodType>(options: AdapterOptions<
                     priority: options.priority || "medium",
                     payload: args,
                     schema: options.schema,
-                    timeoutMs: options.timeout
+                    timeoutMs: options.timeout,
+                    environment: "langchain"
                 });
 
                 const triageUrl = `https://letsping.co/requests/${request.id}`;

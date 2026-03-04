@@ -121,35 +121,81 @@ def _raise_for_response(res: httpx.Response) -> None:
     raise LetsPingError(msg, res.status_code, c, _code_to_doc_url(c))
 
 
-def create_agent_workspace(base_url: Optional[str] = None) -> Dict[str, Any]:
+def _is_retryable(status_code: int) -> bool:
+    return status_code == 429 or status_code >= 500
+
+
+def _request_with_retry(
+    client: httpx.Client,
+    method: str,
+    url: str,
+    max_attempts: int = 1,
+    initial_delay: float = 1.0,
+    max_delay: float = 10.0,
+    **kwargs: Any,
+) -> httpx.Response:
+    """Perform request with optional retries on 429 and 5xx. Raises via _raise_for_response on final non-2xx."""
+    last_res: Optional[httpx.Response] = None
+    for attempt in range(max_attempts):
+        res = client.request(method, url, **kwargs)
+        last_res = res
+        if res.is_success:
+            return res
+        if not _is_retryable(res.status_code) or attempt == max_attempts - 1:
+            _raise_for_response(res)
+        delay = min(initial_delay * (1.5 ** attempt) + random.uniform(0, 0.2), max_delay)
+        time.sleep(delay)
+    _raise_for_response(last_res)
+    return last_res
+
+
+def create_agent_workspace(
+    base_url: Optional[str] = None,
+    retries: int = 0,
+    initial_delay: float = 1.0,
+    max_delay: float = 10.0,
+) -> Dict[str, Any]:
     """
     Request a signup token, redeem it to create a workspace, and register one agent.
     Returns credentials (project_id, api_key, ingest_url, agent_id, agent_secret, etc.) so the agent can call
     ingest_with_agent_signature. Rate limits apply. Raises LetsPingError on 4xx/5xx or if self-serve signup is disabled.
+
+    Args:
+        base_url: App root URL (e.g. https://letsping.co). Defaults to LETSPING_BASE_URL or https://letsping.co.
+        retries: Number of retries for transient failures (429, 5xx). Default 0.
+        initial_delay: Initial backoff seconds. Default 1.0.
+        max_delay: Max backoff seconds. Default 10.0.
     """
     base = (base_url or os.getenv("LETSPING_BASE_URL", "https://letsping.co")).rstrip("/")
+    max_attempts = max(1, 1 + retries)
     with httpx.Client(timeout=30.0) as client:
-        token_res = client.post(f"{base}/api/agent-signup/request-token", json={})
-        _raise_for_response(token_res)
+        token_res = _request_with_retry(
+            client, "POST", f"{base}/api/agent-signup/request-token",
+            max_attempts=max_attempts, initial_delay=initial_delay, max_delay=max_delay,
+            json={},
+        )
         token_data = token_res.json()
         token = token_data.get("token")
         if not token:
             raise LetsPingError("LetsPing Error: No token in request-token response")
 
-        redeem_res = client.post(f"{base}/api/agent-signup", json={"token": token})
-        _raise_for_response(redeem_res)
+        redeem_res = _request_with_retry(
+            client, "POST", f"{base}/api/agent-signup",
+            max_attempts=max_attempts, initial_delay=initial_delay, max_delay=max_delay,
+            json={"token": token},
+        )
         redeem = redeem_res.json()
         api_key = redeem.get("api_key")
         agents_register_url = redeem.get("agents_register_url")
         if not api_key or not agents_register_url:
             raise LetsPingError("LetsPing Error: Invalid redeem response (missing api_key or agents_register_url)")
 
-        register_res = client.post(
-            agents_register_url,
+        register_res = _request_with_retry(
+            client, "POST", agents_register_url,
+            max_attempts=max_attempts, initial_delay=initial_delay, max_delay=max_delay,
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
             json={},
         )
-        _raise_for_response(register_res)
         reg = register_res.json()
         agent_id = reg.get("agent_id")
         agent_secret = reg.get("agent_secret")
@@ -176,21 +222,30 @@ def ingest_with_agent_signature(
     project_id: str,
     ingest_url: str,
     api_key: str,
+    retries: int = 0,
+    initial_delay: float = 1.0,
+    max_delay: float = 10.0,
 ) -> Dict[str, Any]:
     """
     Build a signed ingest body and POST it to the ingest URL with Bearer api_key. Returns the JSON response.
     Use this so the agent quickstart does not require hand-rolled HMAC or curl.
+
+    Args:
+        retries: Number of retries for transient failures (429, 5xx). Default 0.
+        initial_delay: Initial backoff seconds. Default 1.0.
+        max_delay: Max backoff seconds. Default 10.0.
     """
     call = {"project_id": project_id, "service": service, "action": action, "payload": payload or {}}
     signed = _sign_agent_call(agent_id, agent_secret, call)
     body = {**call, **signed}
+    max_attempts = max(1, 1 + retries)
     with httpx.Client(timeout=30.0) as client:
-        res = client.post(
-            ingest_url,
+        res = _request_with_retry(
+            client, "POST", ingest_url,
+            max_attempts=max_attempts, initial_delay=initial_delay, max_delay=max_delay,
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
             json=body,
         )
-        _raise_for_response(res)
         return res.json()
 
 
@@ -433,6 +488,7 @@ class LetsPing:
         state_snapshot: Optional[Dict[str, Any]] = None,
         trace_id: Optional[str] = None,
         parent_request_id: Optional[str] = None,
+        environment: Optional[str] = None,
     ) -> str:
         """
         Registers a request and returns immediately (Non-blocking).
@@ -445,6 +501,7 @@ class LetsPing:
             https://letsping.co/docs#defer
         """
         metadata = {"sdk": "python"}
+        env = environment or os.getenv("LETSPING_ENVIRONMENT")
         if role:
             metadata["role"] = role
         if callback_url:
@@ -453,6 +510,8 @@ class LetsPing:
             metadata["trace_id"] = trace_id
         if parent_request_id:
             metadata["parent_request_id"] = parent_request_id
+        if env:
+            metadata["environment"] = env
 
         body = {
             "service":  service,
@@ -575,14 +634,18 @@ class LetsPing:
         state_snapshot: Optional[Dict[str, Any]] = None,
         trace_id: Optional[str] = None,
         parent_request_id: Optional[str] = None,
+        environment: Optional[str] = None,
     ) -> str:
         metadata: Dict[str, Any] = {"sdk": "python"}
+        env = environment or os.getenv("LETSPING_ENVIRONMENT")
         if role:
             metadata["role"] = role
         if trace_id:
             metadata["trace_id"] = trace_id
         if parent_request_id:
             metadata["parent_request_id"] = parent_request_id
+        if env:
+            metadata["environment"] = env
         body = {
             "service":  service,
             "action":   action,
@@ -694,6 +757,16 @@ class LetsPing:
                 return f"ERROR: Input parsing failed: {str(e)}"
                 
         return human_approval_tool
+
+    def approval_tool(self, service: str, action: str, priority: Priority = "medium") -> Callable:
+        """
+        Opinionated alias for tool().
+
+        Returns a callable that routes a tool invocation through LetsPing approval and returns a JSON string
+        with status and executed_payload. Use this when you want a simple, default happy path for LangChain,
+        CrewAI, or any agent runtime that expects a callable tool.
+        """
+        return self.tool(service=service, action=action, priority=priority)
 
     def webhook_handler(
         self,

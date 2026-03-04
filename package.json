@@ -6,6 +6,6 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "npm run build -w @letsping/sdk && npm run build -w @letsping/adapters && npm run build -w @letsping/mcp && npm run build -w letsping"
+    "build": "npm run build -w @letsping/sdk && npm run build -w @letsping/adapters && npm run build -w @letsping/mcp && npm run build -w @letsping/cli"
   }
 }

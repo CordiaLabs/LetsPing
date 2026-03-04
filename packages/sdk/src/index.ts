@@ -1,6 +1,6 @@
 import { createCipheriv, createDecipheriv, randomBytes, createHmac } from "node:crypto";
 
-let SDK_VERSION = "0.2.1";
+let SDK_VERSION = "0.3.3";
 try {
 
     SDK_VERSION = require("../package.json").version;
@@ -37,6 +37,12 @@ export interface RequestOptions {
     timeoutMs?: number;
 
     role?: string;
+
+    /**
+     * Optional environment label so the ledger can group actions across runtimes.
+     * Example values: "cloudflare", "vercel-ai", "langgraph", "mcp", "bare-metal".
+     */
+    environment?: string;
 
     /**
      * Optional distributed tracing identifiers. If provided, these will be
@@ -320,19 +326,58 @@ export interface AgentWorkspaceCredentials {
     docs_url?: string;
 }
 
+function delayMs(ms: number): Promise<void> {
+    return new Promise((r) => setTimeout(r, ms));
+}
+
+async function fetchWithRetry(
+    url: string,
+    init: RequestInit,
+    retry: Required<RetryOptions>
+): Promise<Response> {
+    const maxAttempts = Math.max(1, retry.maxAttempts);
+    let lastRes: Response | null = null;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        const res = await fetch(url, init);
+        lastRes = res;
+        const retryable = res.status === 429 || res.status >= 500;
+        if (!retryable || attempt === maxAttempts) return res;
+        const delay = Math.min(
+            retry.initialDelayMs * Math.pow(1.5, attempt - 1) + Math.random() * 200,
+            retry.maxDelayMs
+        );
+        await delayMs(delay);
+    }
+    return lastRes!;
+}
+
 /**
  * Request a signup token, redeem it to create a workspace, and register one agent. Returns credentials so the agent can call ingestWithAgentSignature.
  * Rate limits apply (see letsping.co/docs). Throws on 4xx/5xx or if self-serve signup is disabled.
  * @param options.baseUrl - App root URL (e.g. https://letsping.co). Defaults to LETSPING_BASE_URL or https://letsping.co.
+ * @param options.retry - Optional retry for transient failures (429, 5xx). Default no retry.
  */
-export async function createAgentWorkspace(options?: { baseUrl?: string }): Promise<AgentWorkspaceCredentials> {
+export async function createAgentWorkspace(options?: {
+    baseUrl?: string;
+    retry?: RetryOptions;
+}): Promise<AgentWorkspaceCredentials> {
     const baseUrl = (options?.baseUrl ?? process.env.LETSPING_BASE_URL ?? "https://letsping.co").replace(/\/+$/, "");
+    const r = options?.retry ?? {};
+    const retry: Required<RetryOptions> = {
+        maxAttempts: r.maxAttempts ?? 1,
+        initialDelayMs: r.initialDelayMs ?? 1000,
+        maxDelayMs: r.maxDelayMs ?? 10000,
+    };
 
-    const tokenRes = await fetch(`${baseUrl}/api/agent-signup/request-token`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: "{}",
-    });
+    const tokenRes = await fetchWithRetry(
+        `${baseUrl}/api/agent-signup/request-token`,
+        {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: "{}",
+        },
+        retry
+    );
     if (!tokenRes.ok) {
         const err = await tokenRes.json().catch(() => ({})) as { error?: string; code?: string };
         const { message, code, documentationUrl } = parseApiError(tokenRes.status, err);
@@ -343,11 +388,15 @@ export async function createAgentWorkspace(options?: { baseUrl?: string }): Prom
         throw new LetsPingError("LetsPing Error: No token in request-token response");
     }
 
-    const redeemRes = await fetch(`${baseUrl}/api/agent-signup`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token }),
-    });
+    const redeemRes = await fetchWithRetry(
+        `${baseUrl}/api/agent-signup`,
+        {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ token }),
+        },
+        retry
+    );
     if (!redeemRes.ok) {
         const err = await redeemRes.json().catch(() => ({})) as { error?: string; message?: string };
         const { message, code, documentationUrl } = parseApiError(redeemRes.status, err);
@@ -365,14 +414,18 @@ export async function createAgentWorkspace(options?: { baseUrl?: string }): Prom
         throw new LetsPingError("LetsPing Error: Invalid redeem response (missing api_key or agents_register_url)");
     }
 
-    const registerRes = await fetch(redeem.agents_register_url, {
-        method: "POST",
-        headers: {
-            Authorization: `Bearer ${redeem.api_key}`,
-            "Content-Type": "application/json",
+    const registerRes = await fetchWithRetry(
+        redeem.agents_register_url,
+        {
+            method: "POST",
+            headers: {
+                Authorization: `Bearer ${redeem.api_key}`,
+                "Content-Type": "application/json",
+            },
+            body: "{}",
         },
-        body: "{}",
-    });
+        retry
+    );
     if (!registerRes.ok) {
         const err = await registerRes.json().catch(() => ({})) as { error?: string };
         const { message, code, documentationUrl } = parseApiError(registerRes.status, err);
@@ -400,6 +453,8 @@ export interface IngestWithAgentSignatureOptions {
     projectId: string;
     ingestUrl: string;
     apiKey: string;
+    /** Optional retry for transient failures (429, 5xx). */
+    retry?: RetryOptions;
 }
 
 /** Ingest payload: service, action, and payload. */
@@ -412,6 +467,7 @@ export interface IngestPayload {
 /**
  * Build a signed ingest body and POST it to the ingest URL with Bearer apiKey. Returns the JSON response; throws on non-2xx.
  * Use this so the agent quickstart does not require hand-rolled HMAC or curl. See also: signIngestBody.
+ * Optional options.retry for transient 429/5xx.
  */
 export async function ingestWithAgentSignature(
     agentId: string,
@@ -425,14 +481,24 @@ export async function ingestWithAgentSignature(
         action: payload.action,
         payload: payload.payload ?? {},
     });
-    const res = await fetch(options.ingestUrl, {
-        method: "POST",
-        headers: {
-            Authorization: `Bearer ${options.apiKey}`,
-            "Content-Type": "application/json",
+    const r = options.retry ?? {};
+    const retry: Required<RetryOptions> = {
+        maxAttempts: r.maxAttempts ?? 1,
+        initialDelayMs: r.initialDelayMs ?? 1000,
+        maxDelayMs: r.maxDelayMs ?? 10000,
+    };
+    const res = await fetchWithRetry(
+        options.ingestUrl,
+        {
+            method: "POST",
+            headers: {
+                Authorization: `Bearer ${options.apiKey}`,
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify(body),
         },
-        body: JSON.stringify(body),
-    });
+        retry
+    );
     const data = (await res.json().catch(() => ({}))) as Record<string, any>;
     if (!res.ok) {
         const { message, code, documentationUrl } = parseApiError(res.status, data as { error?: string });
@@ -588,6 +654,7 @@ export class LetsPing {
 
         const traceId = options.trace_id;
         const parentId = options.parent_request_id;
+        const environment = options.environment || process.env.LETSPING_ENVIRONMENT;
 
         // Do not mutate caller payload; attach tracing metadata under a reserved key.
         const basePayload = options.payload || {};
@@ -599,6 +666,7 @@ export class LetsPing {
                 ...existingMeta,
                 ...(traceId ? { trace_id: traceId } : {}),
                 ...(parentId ? { parent_request_id: parentId } : {}),
+                ...(environment ? { environment } : {}),
             },
         };
 
@@ -609,7 +677,13 @@ export class LetsPing {
                 payload: this._encrypt(enrichedPayload),
                 priority: options.priority || "medium",
                 schema: options.schema,
-                metadata: { role: options.role, sdk: "node", trace_id: traceId, parent_request_id: parentId }
+                metadata: {
+                    role: options.role,
+                    sdk: "node",
+                    trace_id: traceId,
+                    parent_request_id: parentId,
+                    ...(environment ? { environment } : {}),
+                }
             });
 
             const { id, uploadUrl, dek } = res;
@@ -730,6 +804,7 @@ export class LetsPing {
 
         const traceId = options.trace_id;
         const parentId = options.parent_request_id;
+        const environment = options.environment || process.env.LETSPING_ENVIRONMENT;
         const basePayload = options.payload || {};
         const metaKey = "_lp_meta";
         const existingMeta = (basePayload as any)[metaKey] || {};
@@ -739,6 +814,7 @@ export class LetsPing {
                 ...existingMeta,
                 ...(traceId ? { trace_id: traceId } : {}),
                 ...(parentId ? { parent_request_id: parentId } : {}),
+                ...(environment ? { environment } : {}),
             },
         };
 
@@ -749,7 +825,13 @@ export class LetsPing {
                 payload: this._encrypt(enrichedPayload),
                 priority: options.priority || "medium",
                 schema: options.schema,
-                metadata: { role: options.role, sdk: "node", trace_id: traceId, parent_request_id: parentId },
+                metadata: {
+                    role: options.role,
+                    sdk: "node",
+                    trace_id: traceId,
+                    parent_request_id: parentId,
+                    ...(environment ? { environment } : {}),
+                },
             });
             if (res.uploadUrl && options.state_snapshot) {
                 try {

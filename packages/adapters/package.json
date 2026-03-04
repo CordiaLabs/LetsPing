@@ -1,7 +1,7 @@
 {
   "name": "@letsping/adapters",
-  "version": "0.3.1",
-  "description": "LetsPing Framework Adapters for Vercel AI SDK and LangChain",
+  "version": "0.3.3",
+  "description": "LetsPing Framework Adapters for Vercel AI SDK, LangChain, and Cloudflare Agents",
   "files": [
     "dist"
   ],
@@ -15,6 +15,26 @@
       "types": "./dist/langchain.d.ts",
       "import": "./dist/langchain.js",
       "require": "./dist/langchain.js"
+    },
+    "./approval": {
+      "types": "./dist/approval.d.ts",
+      "import": "./dist/approval.js",
+      "require": "./dist/approval.js"
+    },
+    "./cloudflare": {
+      "types": "./dist/cloudflare.d.ts",
+      "import": "./dist/cloudflare.js",
+      "require": "./dist/cloudflare.js"
+    },
+    "./cloudflare/observability": {
+      "types": "./dist/cloudflare-observability.d.ts",
+      "import": "./dist/cloudflare-observability.js",
+      "require": "./dist/cloudflare-observability.js"
+    },
+    "./cloudflare/mcp": {
+      "types": "./dist/cloudflare-mcp.d.ts",
+      "import": "./dist/cloudflare-mcp.js",
+      "require": "./dist/cloudflare-mcp.js"
     }
   },
   "scripts": {
@@ -33,6 +53,8 @@
     "hitl",
     "vercel-ai",
     "langchain",
+    "cloudflare",
+    "durable-objects",
     "adapters"
   ],
   "peerDependencies": {
@@ -41,7 +63,7 @@
     "zod": ">=3.0.0"
   },
   "dependencies": {
-    "@letsping/sdk": "0.3.1"
+    "@letsping/sdk": "0.3.3"
   },
   "devDependencies": {
     "tsup": "^8.0.0",

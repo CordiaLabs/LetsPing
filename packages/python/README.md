@@ -5,14 +5,71 @@
 
 The official Python client for [LetsPing](https://letsping.co).
 
-LetsPing is a behavioral firewall and Human-in-the-Loop (HITL) infrastructure layer for Agentic AI. It provides mathematically secure state-parking (Cryo-Sleep) and execution governance for autonomous agents built on frameworks like LangGraph, CrewAI, and custom architectures.
+LetsPing is a behavioral firewall and human in the loop control plane for agents. It pauses high risk actions, lets a human approve, reject, or patch the payload, then resumes execution.
 
-**What you get with this package:** One client that connects your agent to the full LetsPing stack: a hosted dashboard for triage and approvals, a Markov-based behavioral firewall, Cryo-Sleep state parking, and audit trails. Use LangGraph or CrewAI for the graph; use LetsPing for the human layer and guardrails.
+## One command quickstart
 
-### Features
-- **The Behavioral Shield:** Silently profiles your agent's execution paths via Markov Chains. Automatically intercepts 0-probability reasoning anomalies (hallucinations/prompt injections).
-- **Cryo-Sleep State Parking:** Pauses execution and securely uploads massive agent states directly to storage using Signed URLs, entirely bypassing serverless timeouts and webhook payload limits.
-- **Smart-Accept Drift Adaptation:** Approval decisions mathematically alter the baseline. Old unused reasoning paths decay automatically via Exponential Moving Average (EMA).
+```bash
+pip install letsping
+python -m letsping.quickstart
+```
+
+This will send one dangerous action, show the LetsPing dashboard link, and print what the agent sees for APPROVED, REJECTED, and APPROVED_WITH_MODIFICATIONS.
+
+## One file quickstart (dangerous action, dashboard link, 3 outcomes)
+
+This is the smallest end to end pattern. It submits a request, prints the dashboard link, then shows what the agent sees on APPROVED, REJECTED, and APPROVED_WITH_MODIFICATIONS.
+
+```python
+import os
+from letsping import LetsPing, ApprovalRejectedError
+
+lp = LetsPing(api_key=os.environ["LETSPING_API_KEY"])
+request_id = lp.defer(service="db-agent", action="sql", payload={"query": "DROP TABLE users"})
+print("Approve or reject in dashboard:", f"https://letsping.co/requests/{request_id}")
+try:
+    d = lp.wait(request_id, timeout=3600)
+    print({"status": d["status"], "executed_payload": d.get("patched_payload") or d["payload"], "diff_summary": d.get("diff_summary")})
+except ApprovalRejectedError:
+    print({"status": "REJECTED", "message": "Do not proceed."})
+```
+
+## Opinionated approval tool example
+
+For LangGraph, CrewAI, and similar frameworks, use the opinionated helper so approval is just one tool in your list:
+
+```python
+from letsping import LetsPing
+
+client = LetsPing()  # reads LETSPING_API_KEY from the environment
+
+tools = [
+    client.approval_tool(
+        service="db-agent",
+        action="run_sql",
+        description="Dangerous: run a SQL query.",
+    )
+]
+```
+
+## Why not just build this myself
+
+- **Anomaly detection**: LetsPing learns baselines and can intercept anomalies before they execute, not just request approvals.
+- **Escrow and x402**: agent to agent settlement and funding flows are handled as part of the control plane so your agent does not need to embed payments logic.
+- **Receipts**: decisions and cryptographic receipts are emitted in machine readable shapes for audits, incident review, and billing.
+
+**What you get with this package:** One client that connects your agent to the LetsPing control plane, including a hosted dashboard for approvals, state parking for long running flows, and audit trails.
+
+## When you should not use this
+
+- You want full transcript storage or prompt logging. This client is meant for tool level approvals, not full conversation capture.
+- You only need simple API authentication. Use your own auth and RBAC for that; LetsPing focuses on high risk tool boundaries.
+- You need to replace your primary monitoring or SIEM. LetsPing emits events and receipts but does not replace those systems.
+
+### Advanced features
+- **Behavioral profiling:** Optional Markov based profiling of your agent's execution paths so you can detect anomalies, not just request approvals.
+- **State parking:** Pauses execution and securely uploads large agent state to storage using signed URLs, so long running flows are not blocked by timeouts.
+- **Baseline adaptation:** Approval decisions adjust the baseline over time. Old unused paths decay automatically via exponential moving average.
 
 ## Installation
 
@@ -34,7 +91,7 @@ export LETSPING_API_KEY="lp_live_..."
 
 ## Usage
 
-### Minimal drop-in example
+### Minimal drop in example
 
 The fastest way to see your first approval in the dashboard:
 
@@ -145,9 +202,9 @@ asyncio.run(main())
 
 ```
 
-### 3. LangChain / Agent Integration
+### 3. LangChain and agent integration
 
-LetsPing provides a compliant tool interface that can be injected directly into LLM agent toolkits (LangChain, CrewAI, etc). This allows the LLM to *decide* when to ask for help.
+LetsPing provides a compliant tool interface that can be injected directly into LLM agent toolkits (LangGraph, CrewAI, and others). The opinionated helper is `approval_tool`, which returns a single tool that matches common agent patterns.
 
 ```python
 from letsping import LetsPing
@@ -155,13 +212,10 @@ from letsping import LetsPing
 client = LetsPing()
 
 tools = [
-    # ... your other tools (search, calculator) ...
-    
-    # Inject the human as a tool
-    client.tool(
-        service="research-agent",
-        action="review_draft",
-        priority="high"
+    client.approval_tool(
+        service="db-agent",
+        action="run_sql",
+        description="Dangerous: run a SQL query.",
     )
 ]
 
@@ -281,12 +335,14 @@ async def handle_decision(event: dict):
 
 For async frameworks you can also use `awebhook_handler` with the same pattern.
 
-### Agent quickstart (no human)
+### Agent path (self-serve + signed ingest)
 
 For headless agents that get their own workspace and send signed ingest calls without a human in the loop:
 
 - `create_agent_workspace(base_url=None)` — Request token → redeem → register in one call. Returns `project_id`, `api_key`, `ingest_url`, `agent_id`, `agent_secret`. Rate limits apply; see [agent quickstart](https://letsping.co/agent/quickstart).
-- `ingest_with_agent_signature(agent_id, agent_secret, service, action, payload, project_id, ingest_url, api_key)` — POST a signed ingest (no hand-rolled HMAC or curl).
+- `ingest_with_agent_signature(agent_id, agent_secret, service, action, payload, project_id, ingest_url, api_key)` — POST a signed ingest (no hand-rolled HMAC or curl). Built-in retries on 429/5xx when using the full client.
+
+All API and network errors are raised as `LetsPingError` with optional `status`, `code` (e.g. `LETSPING_402_QUOTA`, `LETSPING_429_RATE_LIMIT`, `LETSPING_TIMEOUT`), and `documentation_url` so you can branch or link users to the right doc.
 
 ```python
 from letsping import create_agent_workspace, ingest_with_agent_signature

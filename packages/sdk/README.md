@@ -1,16 +1,64 @@
 # @letsping/sdk
 
-The official Node.js/TypeScript SDK for [LetsPing](https://letsping.co).
+The official Node.js and TypeScript SDK for [LetsPing](https://letsping.co).
 
-LetsPing is a behavioral firewall and Human-in-the-Loop (HITL) infrastructure layer for Agentic AI. It provides mathematically secure state-parking (Cryo-Sleep) and execution governance for autonomous agents built on frameworks like LangGraph, Vercel AI SDK, and custom architectures.
+LetsPing is a behavioral firewall and human in the loop control plane for agents. It pauses high risk actions, lets a human approve, reject, or patch the payload, then resumes execution.
 
-**What you get with this SDK:** One client that connects your agent to the full LetsPing stack: a hosted dashboard for triage and approvals, a Markov-based behavioral firewall that learns your graph and intercepts anomalies, Cryo-Sleep state parking so long-running flows survive serverless limits, and audit trails for compliance. Use LangGraph (or any runtime) for the graph; use LetsPing for the human layer and guardrails.
+## One file quickstart (dangerous action, dashboard link, 3 outcomes)
 
-### Features
-- **The Behavioral Shield:** Silently profiles your agent's execution paths via Markov Chains. Automatically intercepts 0-probability reasoning anomalies (hallucinations/prompt injections).
-- **Cryo-Sleep State Parking:** Pauses execution and securely uploads massive agent states directly to storage using Signed URLs, entirely bypassing serverless timeouts and webhook payload limits.
-- **Smart-Accept Drift Adaptation:** Approval decisions mathematically alter the baseline. Old unused reasoning paths decay automatically via Exponential Moving Average (EMA).
-- **Agent Identity & Escrow Helpers:** Optional HMAC-based helpers (`signAgentCall`, `verifyEscrow`, `chainHandoff`) for cryptographically linking agent calls and handoffs to LetsPing requests.
+This is the smallest end to end pattern. It submits a request, prints the dashboard link, then shows what the agent sees on APPROVED, REJECTED, and APPROVED_WITH_MODIFICATIONS.
+
+```ts
+import { LetsPing } from "@letsping/sdk";
+
+const lp = new LetsPing(process.env.LETSPING_API_KEY!);
+const { id } = await lp.defer({ service: "db-agent", action: "sql", payload: { query: "DROP TABLE users" } });
+console.log("Approve or reject in dashboard:", `https://letsping.co/requests/${id}`);
+const d = await lp.waitForDecision(id, { originalPayload: { query: "DROP TABLE users" } });
+if (d.status === "REJECTED") console.log({ status: "REJECTED", message: "Do not proceed." });
+else if (d.status === "APPROVED_WITH_MODIFICATIONS") console.log({ status: d.status, diff_summary: d.diff_summary, executed_payload: d.patched_payload });
+else console.log({ status: "APPROVED", executed_payload: d.payload });
+```
+
+## Why not just build this myself
+
+- **Anomaly detection**: LetsPing learns baselines and can intercept anomalies before they execute, not just request approvals.
+- **Escrow and x402**: agent to agent settlement and funding flows are handled as part of the control plane so your agent does not need to embed payments logic.
+- **Receipts**: decisions and cryptographic receipts are emitted in machine readable shapes for audits, incident review, and billing.
+
+## Observability surfaces
+
+- **OpenTelemetry spans**: the SDK emits `letsping.ask` and `letsping.defer` spans when `@opentelemetry/api` is present. Attributes include `letsping.service`, `letsping.action`, `letsping.priority`, and `letsping.request_id` when available.
+- **Cloudflare Tail Workers receipts**: use `@letsping/adapters/cloudflare` to publish structured receipts into `diagnostics_channel` so they appear in Tail Workers.
+
+**What you get with this SDK:** One client that connects your agent to the LetsPing control plane, including a hosted dashboard for approvals, state parking for long running flows, and audit trails.
+
+## When you should not use this
+
+- You need a full audit log of every token or message. This SDK is designed for tool level approvals, not full conversation logging.
+- You only need basic API key checks or RBAC. Use your existing auth layer; LetsPing is for high risk tool boundaries and approvals.
+- You want to replace your own identity provider. LetsPing does not replace your auth system. It sits in front of tools and services.
+
+## One hour evaluation path
+
+If you want to feel the value in under one meeting:
+
+1. Clone the `examples/vercel-ai-tools` or your minimal Node demo.
+2. Point it at a staging Stripe or database if you want to see a real side effect.
+3. Run three steps:
+   - Trigger a dangerous action like `delete_account` or `DROP TABLE users`.
+   - Reject it once in the LetsPing dashboard.
+   - Approve it once with a patched payload.
+4. Look in three places:
+   - The decision in the LetsPing dashboard.
+   - The log output or Cloudflare Tail Worker receipt.
+   - The diff between requested and executed payload.
+
+### Advanced features
+- **Behavioral profiling:** Optional Markov based profiling of your agent's execution paths. Detects reasoning anomalies and can flag requests before tools run.
+- **State parking:** Pauses execution and securely uploads large agent state to storage using signed URLs, so long running flows are not blocked by timeouts.
+- **Baseline adaptation:** Approval decisions update the baseline over time. Old unused paths decay automatically via exponential moving average.
+- **Agent identity and escrow helpers:** Optional HMAC helpers (`signAgentCall`, `verifyEscrow`, `chainHandoff`) for linking agent calls and handoffs to LetsPing requests.
 
 ## Requirements
 
@@ -45,6 +93,13 @@ const decision = await lp.ask({
 ```
 
 Every example in this README follows the same pattern: **either pass the key explicitly or rely on `LETSPING_API_KEY` via env**.
+
+### Agent path (self-serve + signed ingest)
+
+For headless agents that get their own workspace and send signed ingest without a human:
+
+- **`createAgentWorkspace(options?)`** — Request token → redeem → register in one call. Returns `{ project_id, api_key, ingest_url, agent_id, agent_secret }` so the agent gets its own workspace. Rate limits apply; see [agent quickstart](https://letsping.co/agent/quickstart).
+- **`ingestWithAgentSignature(agentId, agentSecret, payload, options)`** — POST a signed ingest with built-in retries and no hand-rolled HMAC. Errors are thrown as `LetsPingError` with `code` (e.g. `LETSPING_402_QUOTA`, `LETSPING_429_RATE_LIMIT`) and `documentationUrl` for branching or user-facing links.
 
 ### Blocking Request (`ask`)
 
@@ -277,9 +332,6 @@ https://letsping.co/docs#sdk
 ### Agent-to-Agent Escrow (optional)
 
 For multi-agent systems that want cryptographic guarantees around handoffs, the SDK exposes:
-
-- `createAgentWorkspace(options?)` to do request-token → redeem → register in one call. Returns `{ project_id, api_key, ingest_url, agent_id, agent_secret }` so the agent gets its own workspace without a human. Rate limits apply; see [agent quickstart](https://letsping.co/agent/quickstart).
-- `ingestWithAgentSignature(agentId, agentSecret, payload, options)` to POST a signed ingest (no hand-rolled HMAC or curl). Options: `{ projectId, ingestUrl, apiKey }`.
 - `signAgentCall(agentId, secret, call)` to attach `agent_id` and `agent_signature` to `/ingest` calls.
 - `signIngestBody(agentId, secret, body)` to take an existing ingest body (`{ project_id, service, action, payload }`) and return it with `agent_id` and `agent_signature` attached.
 - `verifyEscrow(event, secret)` to validate LetsPing escrow webhooks.

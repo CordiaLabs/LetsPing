@@ -42,6 +42,7 @@ server.tool(
                 priority: priority || "medium",
                 timeoutMs: timeout,
                 role: role || undefined,
+                environment: "mcp",
             });
 
             if (decision.status === "REJECTED") {

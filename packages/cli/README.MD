@@ -1,8 +1,6 @@
 # @letsping/cli
 
-Official command-line interface for [LetsPing](https://letsping.co).
-
-This tool creates a secure bidirectional tunnel between your local development environment and the LetsPing cloud dashboard. It enables realtime testing of the **Behavioral Shield** and Human-in-the-Loop approval workflows for agents running on `localhost` without requiring public deployment.
+Command line tool for creating a secure tunnel between your local agent and the LetsPing dashboard so you can test approvals from `localhost`.
 
 ## Quick Start
 
@@ -58,7 +56,7 @@ LETSPING_PORT=4000
 
    The request will appear almost instantly in your LetsPing dashboard under the **Localhost** environment.
 
-If you run the **2-minute demo** scripts from `@letsping/sdk` or `letsping` while this tunnel is active and point their base URL at `http://localhost:<port>/api`, all demo traffic will flow through the tunnel and show up in the dashboard tagged as **Localhost**.
+If you run the **2-minute demo** scripts from `@letsping/sdk` or `npx @letsping/cli demo` while this tunnel is active and point their base URL at `http://localhost:<port>/api`, all demo traffic will flow through the tunnel and show up in the dashboard tagged as **Localhost**.
 
 ## Important Notes
 
@@ -79,11 +77,17 @@ The CLI does **not** expose any endpoint to the public internet.
 - When a human approves/rejects, the decision travels **back through the tunnel** to your waiting agent.
 
 This architecture means:
-- No firewall changes needed
-- No public URL is ever created
-- Works behind NAT, corporate proxies, etc.
+- No firewall changes needed.
+- No public URL is ever created.
+- Works behind NAT, corporate proxies, and most VPN setups.
 
-Because the tunnel is outbound‑only and scoped to `localhost:<port>`, it is safe for AI agents to start and use it as part of automated workflows (for example via MCP or other system tools), without opening any inbound ports on your machine.
+Because the tunnel is outbound only and scoped to `localhost:<port>`, it is safe for AI agents to start and use it as part of automated workflows (for example via MCP or other system tools), without opening any inbound ports on your machine.
+
+## When you should not use this
+
+- You are wiring a production agent that already has a public HTTPS endpoint. Point your SDK directly at your own ingress instead of running a tunnel.
+- You want a generic HTTP tunnel for arbitrary services. This CLI is tightly scoped to LetsPing ingest and decision flows.
+- You need a long lived VPN or SSH style tunnel. Use existing networking tools for that; this CLI is for debugging and development flows.
 
 ## Troubleshooting
 
@@ -97,5 +101,3 @@ Because the tunnel is outbound‑only and scoped to `localhost:<port>`, it is sa
 
 For full documentation and request format specification, visit:  
 https://www.letsping.co/docs#local-dev
-
-Happy local developing!

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "letsping"
-version = "0.3.1"
+version = "0.3.3"
 description = "Agent trust layer: behavioral firewall, HITL, and Cryo-Sleep state for AI agents."
 readme = "README.md"
 license = "MIT"
